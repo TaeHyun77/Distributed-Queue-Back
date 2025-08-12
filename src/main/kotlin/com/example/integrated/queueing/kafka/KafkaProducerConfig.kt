@@ -21,7 +21,7 @@ class KafkaProducerConfig(
             ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
 
             // 안정성 설정
-            // ProducerConfig.ACKS_CONFIG to "all", // 모든 ISR 브로커 확인 후 ACK
+            ProducerConfig.ACKS_CONFIG to "all", // 모든 ISR 브로커 확인 후 ACK
             ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG to true, // 중복 방지 + 순서 보장
             ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION to 1, // 순서 보장
             ProducerConfig.RETRIES_CONFIG to Int.MAX_VALUE, // 무제한 재시도

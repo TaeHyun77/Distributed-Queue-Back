@@ -1,15 +1,18 @@
 package com.example.integrated.util
 
+import com.example.integrated.queueing.event.QueueEventPayload
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseCookie
 import org.springframework.http.server.reactive.ServerHttpRequest
+import reactor.core.publisher.Sinks
 
 const val WAIT_QUEUE: String = ":user-queue:wait"
 const val ALLOW_QUEUE: String = ":user-queue:allow"
 const val ACCESS_TOKEN: String = ":user-access:"
-const val TOKEN_TTL_INFO: String = "reserve:USERS-TTL:INFO";
+const val TOKEN_TTL_INFO: String = "reserve:USERS-TTL:INFO"
+const val CHANNEL_NAME = "queueing_system"
 
 fun createCookie(key: String, value: String): ResponseCookie {
     return ResponseCookie.from(key, value)
@@ -31,4 +34,3 @@ fun parsingToken(request: ServerHttpRequest): String {
 
     return token
 }
-

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.reactive.asFlow
 import org.springframework.http.codec.ServerSentEvent
 import org.springframework.stereotype.Service
+import reactor.core.publisher.Sinks
 
 @Service
 class SseEventService(
@@ -17,13 +18,17 @@ class SseEventService(
     private val objectMapper: ObjectMapper,
 ): Loggable {
 
+    companion object {
+        val sink: Sinks.Many<QueueEventPayload> = Sinks.many().replay().limit(1)
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun streamQueueEvents(
         userId: String,
         queueType: String
     ): Flow<ServerSentEvent<String>> {
 
-        return queueService.sink.asFlux().asFlow()
+        return sink.asFlux().asFlow()
             .flatMapConcat {
                 flow {
                     try {
