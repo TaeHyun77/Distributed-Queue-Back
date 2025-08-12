@@ -1,4 +1,4 @@
-package com.example.integrated.lock
+package com.example.integrated.redis.lock
 
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.stereotype.Component

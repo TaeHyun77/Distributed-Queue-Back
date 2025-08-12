@@ -2,8 +2,7 @@ package com.example.integrated.queueing
 
 import com.example.integrated.Loggable
 import com.example.integrated.idempotency.IdempotencyService
-import com.example.integrated.queueing.event.QueueEventPayload
-import com.example.integrated.lock.RedisLockUtil
+import com.example.integrated.redis.lock.RedisLockUtil
 import com.example.integrated.queueing.kafka.KafkaProducerService
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
@@ -38,13 +37,10 @@ import kotlin.system.measureTimeMillis
 @Service
 class QueueService (
 
-    val sink: Sinks.Many<QueueEventPayload> = Sinks.many().replay().limit(1),
-
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
     private val idempotencyService: IdempotencyService,
     private val redisLockUtil: RedisLockUtil,
     private val kafkaProducerService: KafkaProducerService
-
 ): Loggable {
 
     suspend fun register(
@@ -105,7 +101,7 @@ class QueueService (
             throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER)
         } else {
             // 대기열에 성공적으로 추가 되었다면 카프카 메세지 전송
-            kafkaProducerService.sendMessage(waitQueueKey)
+            kafkaProducerService.sendMessage(queueType)
         }
 
         val rank = searchUserRanking(userId, queueType, "wait")
@@ -165,7 +161,7 @@ class QueueService (
             .awaitSingle()
 
         return if (removedCount > 0L) {
-            kafkaProducerService.sendMessage(waitQueueKey)
+            kafkaProducerService.sendMessage(queueType)
             ResponseEntity.ok("대기열 삭제 완료")
         } else {
             val allowResult = cancelAllowUserForWaitContext(userId, queueType)
@@ -318,7 +314,7 @@ class QueueService (
             .awaitFirstOrNull()
 
         if (added == true) {
-            kafkaProducerService.sendMessage(waitQueueKey)
+            kafkaProducerService.sendMessage(queueType)
         }
     }
 
@@ -359,7 +355,7 @@ class QueueService (
                 .add(TOKEN_TTL_INFO, userId, expireAt.toDouble())
                 .awaitFirstOrNull()
 
-            kafkaProducerService.sendMessage(allowQueueKey)
+            kafkaProducerService.sendMessage(queueType)
             movedCount++
         }
 

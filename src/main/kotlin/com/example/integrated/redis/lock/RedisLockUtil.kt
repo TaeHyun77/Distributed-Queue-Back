@@ -1,4 +1,4 @@
-package com.example.integrated.lock
+package com.example.integrated.redis.lock
 
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
