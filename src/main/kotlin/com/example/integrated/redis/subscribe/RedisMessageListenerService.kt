@@ -26,15 +26,15 @@ class RedisMessageListenerService(
         messageListenerContainer: ReactiveRedisMessageListenerContainer,
         channel: ChannelTopic
     ) {
-        val channelSerializer = createChannelAndValueSerializer()
+        val serializer = createChannelAndValueSerializer()
 
-        messageListenerContainer.receive(listOf(channel), channelSerializer, channelSerializer)
+        // 특정 채널을 구독하고
+        messageListenerContainer.receive(listOf(channel), serializer, serializer)
             .flatMap {
                 val event = it.message
+
                 mono {
-                    log.info { "전송 ?" }
                     SseEventService.sink.tryEmitNext(QueueEventPayload(event))
-                    log.info { "전송 ??" }
                 }
             }
             .onErrorContinue { e, _ ->

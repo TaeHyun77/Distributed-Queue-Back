@@ -53,10 +53,12 @@ class RedisConfig(
     * */
     @Bean
     fun listenerContainer(
-        connectionFactory: ReactiveRedisConnectionFactory
-    ): ReactiveRedisMessageListenerContainer {
 
-        // 구독과 메세지 처리 로직을 설정
+        // 자동으로 lettuceConnectionFactory Bean이 주입됨
+        connectionFactory: ReactiveRedisConnectionFactory
+    )
+    : ReactiveRedisMessageListenerContainer {
+
         return ReactiveRedisMessageListenerContainer(connectionFactory)
 
     }

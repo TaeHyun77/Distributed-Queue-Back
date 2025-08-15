@@ -1,0 +1,53 @@
+version: "3"
+
+services:
+  queueing-back-1:
+    image: ayeah77/queueing01
+    container_name: queueing01
+    ports:
+      - "8081:8081"
+    depends_on:
+      - kafka
+
+  queueing-back-2:
+    image: ayeah77/queueing01
+    container_name: queueing02
+    ports:
+      - "8082:8081"
+    depends_on:
+      - kafka
+
+  queueing-back-3:
+    image: ayeah77/queueing01
+    container_name: queueing03
+    ports:
+      - "8083:8081"
+    depends_on:
+      - kafka
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:9092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:29092'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      CLUSTER_ID: 'ciWo7IWazngRchmPES6q5A=='
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+
+  kafka-cli:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka-cli
+    entrypoint: /bin/sh
+    tty: true
+    networks:
+      - default

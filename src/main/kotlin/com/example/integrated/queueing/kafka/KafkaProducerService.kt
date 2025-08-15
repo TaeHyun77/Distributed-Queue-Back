@@ -13,15 +13,16 @@ class KafkaProducerService (
     private val objectMapper: ObjectMapper
 ): Loggable {
 
-    @Value("\${topic.name}")
-    private lateinit var topicName: String
+    @Value("\${queue.event.topic.name}")
+    private lateinit var queueEventTopicName: String
+
 
     fun sendMessage(queueType: String) {
         try {
             val message = KafkaMessageDto(queueType)
             val json = objectMapper.writeValueAsString(message)
 
-            kafkaTemplate.send(topicName, queueType, json).whenComplete { _, ex ->
+            kafkaTemplate.send(queueEventTopicName,json).whenComplete { _, ex ->
                 if (ex == null) {
                     log.info { "Kafka 메세지 전송 성공" }
                 } else {
