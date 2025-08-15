@@ -13,6 +13,7 @@ class KafkaConsumerService(
     private val redisPublisher: RedisPublisher
 ): Loggable {
 
+    // @KafkaListener에 groupId를 명시하지 않으면, application.properties에 정의된 consumer.group-id 값이 자동으로 적용됨
     @KafkaListener(topics = ["queueing-system"], groupId = "queue-event-group")
     fun consume(message: String) {
         try {
