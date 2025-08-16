@@ -22,8 +22,7 @@ Infra : Kafka<br><br>
 
 ---
 
-![image.png](attachment:7c3cf070-10c5-4c67-8637-ce3c9a2ccd37:6ab52c0c-1a11-424c-9955-899a7676e4a1.png)
-
+<img width="797" height="389" alt="Image" src="https://github.com/user-attachments/assets/239afe7f-3afd-45b2-9340-23d464cf4f3e" />
 <br><br>
 
 ### **분산 환경에서 확인해야 할 포인트**
@@ -35,7 +34,7 @@ Infra : Kafka<br><br>
     
     여러 요청을 보내봤을 때 요청을 받는 서버 확인
     
-    ![image.png](attachment:4ef02bc0-98da-445d-a078-4dde1dbc1653:image.png)
+    <img width="1477" height="659" alt="Image" src="https://github.com/user-attachments/assets/e975e69d-d9b3-45e2-a9ae-8951d28cc06a" />
     
     ⇒ 요청이 서버에 고르게 로드 밸런싱 되는 모습<br><br>
     
@@ -44,12 +43,18 @@ Infra : Kafka<br><br>
     
     대기열을 처리하는 “queueing-system” 토픽의 파티션 개수를 3개로 증가시킴 ( 더 늘려도 됨 )
     
-    ![image.png](attachment:2179f3a6-b587-45fb-bfd3-dae9ccf40be3:image.png)
+    <img width="814" height="102" alt="Image" src="https://github.com/user-attachments/assets/8e5add2f-ab7a-4f26-924f-6a91576f259d" />
     
     컨슈머 그룹 내의 서버에 파티션 재할당이 잘 되었는지 확인
     
-    ![image.png](attachment:e630d44f-9dc4-4c4a-bbc2-828344ff4f5e:image.png)
+    <img width="1427" height="98" alt="Image" src="https://github.com/user-attachments/assets/28a4036a-abf5-4451-93e2-a7bd4ad8c866" />
     
     요청을 보내어 고르게 처리되는지 확인
     
-    ![image.png](attachment:90fd6539-e29e-4de7-a80b-42d47751cae6:image.png)
+    <img width="1427" height="642" alt="Image" src="https://github.com/user-attachments/assets/75969a3e-7aa3-4dda-8318-2387d9781540" />
+
+
+
+
+
+
