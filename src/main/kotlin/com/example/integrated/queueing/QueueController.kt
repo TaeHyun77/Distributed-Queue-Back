@@ -3,17 +3,12 @@ package com.example.integrated.queueing
 import com.example.integrated.Loggable
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.reactive.ServerHttpRequest
 import org.springframework.http.server.reactive.ServerHttpResponse
-import org.springframework.web.bind.annotation.DeleteMapping
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestParam
-import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.bind.annotation.*
 import java.time.Instant
 
 @RequestMapping("/queue")
@@ -22,12 +17,17 @@ class QueueController (
     private val queueService: QueueService
 ): Loggable {
 
+    @Value("\${SERVER_NAME:unknown}")
+    private val serverName: String? = null
+
     @PostMapping("/register/{userId}/{queueType}")
     suspend fun registerUser(
         @PathVariable("userId") userId: String,
         @PathVariable("queueType") queueType: String,
         request: ServerHttpRequest
     ): ResponseEntity<String> {
+
+        log.info { "server : $serverName" }
 
         val now = Instant.now()
         val enterTimestamp = now.epochSecond * 1_000_000_000L + now.nano

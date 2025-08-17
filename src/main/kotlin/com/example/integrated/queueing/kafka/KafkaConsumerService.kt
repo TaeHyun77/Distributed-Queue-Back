@@ -4,6 +4,7 @@ import com.example.integrated.Loggable
 import com.example.integrated.redis.subscribe.RedisPublisher
 import com.example.integrated.util.CHANNEL_NAME
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Service
 
@@ -15,7 +16,15 @@ class KafkaConsumerService(
 
     // @KafkaListener에 groupId를 명시하지 않으면, application.properties에 정의된 consumer.group-id 값이 자동으로 적용됨
     @KafkaListener(topics = ["queueing-system"], groupId = "queue-event-group")
-    fun consume(message: String) {
+    fun consume(message: String, record: ConsumerRecord<String, String>) {
+
+        val data = record.value()
+        val topic = record.topic()
+        val partition = record.partition()
+        val offset = record.offset()
+
+        log.info { "topic: $topic, partition: $partition, offset: $offset, data: $data" }
+
         try {
             val messageDto: KafkaMessageDto = objectMapper.readValue(message, KafkaMessageDto::class.java)
 

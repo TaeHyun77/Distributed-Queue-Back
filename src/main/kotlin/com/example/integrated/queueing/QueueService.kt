@@ -13,7 +13,10 @@ import com.example.integrated.util.WAIT_QUEUE
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.TickerMode
+import kotlinx.coroutines.channels.ticker
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.awaitFirstOrNull
@@ -360,30 +363,5 @@ class QueueService (
         }
 
         return movedCount
-    }
-
-    /**
-     * 대기열 → 참가열 사용자 이동 스케줄링
-     */
-    @OptIn(DelicateCoroutinesApi::class)
-    @Scheduled(fixedDelay = 5000, initialDelay = 30000)
-    fun moveUserToAllowQ() {
-
-        val maxAllowedUsers = 3L
-        val queueTypes = listOf("reserve_공연A", "reserve_공연B", "reserve_공연C")
-
-        queueTypes.forEach { queueType ->
-
-            // 각 다른 대기열의 스케줄링을 병렬적으로 실행
-            CoroutineScope(Dispatchers.IO).launch {
-                val count = allowUser(queueType, maxAllowedUsers)
-
-                if (count > 0) {
-                    log.info { "$queueType 허용열로 이동한 사용자 : $count" }
-                } else {
-                    log.info { "$queueType 허용열로 이동한 사용자 : 0" }
-                }
-            }
-        }
     }
 }
