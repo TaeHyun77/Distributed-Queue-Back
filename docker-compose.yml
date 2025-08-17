@@ -2,28 +2,41 @@ version: "3"
 
 services:
   queueing-back-1:
-    image: ayeah77/queueing01
+    image: ayeah77/queueing
     container_name: queueing01
+    environment:
+      - SERVER_NAME=queueing01
     ports:
       - "8081:8081"
     depends_on:
       - kafka
 
   queueing-back-2:
-    image: ayeah77/queueing01
+    image: ayeah77/queueing
     container_name: queueing02
+    environment:
+      - SERVER_NAME=queueing02
     ports:
       - "8082:8081"
     depends_on:
       - kafka
 
   queueing-back-3:
-    image: ayeah77/queueing01
+    image: ayeah77/queueing
     container_name: queueing03
+    environment:
+      - SERVER_NAME=queueing03
     ports:
       - "8083:8081"
     depends_on:
       - kafka
+
+  # 메인 서버
+  integrated-main:
+    image: ayeah77/integrated-main
+    container_name: integrated-main-container
+    ports:
+      - "8080:8080"
 
   kafka:
     image: confluentinc/cp-kafka:latest
@@ -51,3 +64,19 @@ services:
     tty: true
     networks:
       - default
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+
+    # 호스트에서 8090 포트로 접속하면, 컨테이너 내부의 90 포트로 연결
+    ports:
+      - "8090:90"
+    depends_on:
+      - queueing-back-1
+      - queueing-back-2
+      - queueing-back-3
+
+    # 로컬 파일(./nginx.conf)을 컨테이너 내부(/etc/nginx/nginx.conf)로 마운트하는 설정
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
