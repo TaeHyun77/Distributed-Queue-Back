@@ -20,6 +20,7 @@ class LockManager(
         return Mono.defer {
             reactiveRedisTemplate.opsForValue()
                 .setIfAbsent(key, "lock", Duration.ofSeconds(5))
+
                 .flatMap { acquired ->
                     if (acquired) {
                         Mono.just(true)

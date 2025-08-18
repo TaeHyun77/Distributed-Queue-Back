@@ -1,6 +1,6 @@
 package com.example.integrated.redis.config
 
-import com.example.integrated.Loggable
+import com.example.integrated.util.Loggable
 import com.example.integrated.queueing.QueueService
 import com.example.integrated.queueing.event.QueueEventPayload
 import com.example.integrated.redis.subscribe.RedisMessageListenerService

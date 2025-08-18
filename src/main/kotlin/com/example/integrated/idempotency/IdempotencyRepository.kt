@@ -1,9 +1,10 @@
 package com.example.integrated.idempotency
 
-import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.repository.reactive.ReactiveCrudRepository
+import reactor.core.publisher.Mono
 
-interface IdempotencyRepository: JpaRepository<Idempotency, Long> {
+interface IdempotencyRepository: ReactiveCrudRepository<Idempotency, Long> {
 
-    fun findByIdempotencyKey(idempotencyKey: String): Idempotency?
+    fun findByIdempotencyKey(idempotencyKey: String): Mono<Idempotency>
 
 }

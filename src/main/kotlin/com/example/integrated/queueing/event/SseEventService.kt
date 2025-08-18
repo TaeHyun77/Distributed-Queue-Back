@@ -1,6 +1,6 @@
 package com.example.integrated.queueing.event
 
-import com.example.integrated.Loggable
+import com.example.integrated.util.Loggable
 import com.example.integrated.queueing.QueueService
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.coroutines.ExperimentalCoroutinesApi

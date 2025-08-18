@@ -1,8 +1,7 @@
-package com.example.integrated
+package com.example.integrated.util
 
 import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
-import kotlin.jvm.java
 
 // log 사용을 위한 인터페이스
 interface Loggable {

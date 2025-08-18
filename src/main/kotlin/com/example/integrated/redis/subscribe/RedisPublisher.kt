@@ -1,6 +1,6 @@
 package com.example.integrated.redis.subscribe
 
-import com.example.integrated.Loggable
+import com.example.integrated.util.Loggable
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.stereotype.Component
 

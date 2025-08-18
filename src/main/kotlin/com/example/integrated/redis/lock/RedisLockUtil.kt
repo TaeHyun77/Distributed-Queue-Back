@@ -24,11 +24,9 @@ class RedisLockUtil(
         }
 
         val acquired = acquiredLock(key).awaitFirstOrNull() ?: false
-        if (acquired) {
-            return proceedWithLock(key, block)
-        } else {
-            throw ReserveException(HttpStatus.CONFLICT, ErrorCode.REDIS_FAILED_TO_ACQUIRED_LOCK)
-        }
+        if (!acquired) throw ReserveException(HttpStatus.CONFLICT, ErrorCode.REDIS_FAILED_TO_ACQUIRED_LOCK)
+
+        return proceedWithLock(key, block)
     }
 
     private fun acquiredLock(key: String): Mono<Boolean> {
@@ -44,13 +42,17 @@ class RedisLockUtil(
         return try {
             block()
         } finally {
-            releaseLock(key)
+            val released = releaseLock(key).awaitFirstOrNull() ?: false
+            if (released) {
+                log.info("Lock 반환 성공")
+            } else {
+                log.warn("Lock 반환 실패 또는 이미 만료됨. key=$key")
+            }
         }
     }
 
     private fun releaseLock(key: String): Mono<Boolean> {
-        return manager.tryMutexLock(key)
-            .doOnNext { if (it) log.info("Lock 반환 성공") }
+        return manager.unlock(key)
             .onErrorResume { e ->
                 log.error("[RedisLockError] failed to unlock. key: $key", e)
                 Mono.just(false)

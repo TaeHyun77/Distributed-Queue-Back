@@ -1,8 +1,9 @@
 package com.example.integrated.queueing
 
-import com.example.integrated.Loggable
+import com.example.integrated.util.Loggable
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
+import com.example.integrated.util.logScope
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
