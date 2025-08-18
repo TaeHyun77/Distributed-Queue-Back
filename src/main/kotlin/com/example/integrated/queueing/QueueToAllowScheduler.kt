@@ -1,5 +1,6 @@
 package com.example.integrated.queueing
 
+import com.example.integrated.util.Loggable
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CoroutineScope
@@ -19,13 +20,14 @@ class QueueToAllowScheduler(
 
     @Value("\${move.to.allow.interval}")
     private var moveToAllowInterval: Long
-): CoroutineScope {
+): CoroutineScope, Loggable {
+
+    private val job = SupervisorJob()
 
     // CoroutineScope를 구현 : 클래스 내부에서 지정한 coroutineContext를 기반으로 coroutine을 호출할 수 있음
     // 스프링 빈으로 생명주기가 제어됨 : @Component를 지정하였기에
     // SupervisorJob() 사용 : 개별 작업 실패 시 전체 스코프가 중단되지 않도록
-    override val coroutineContext
-        get() = Dispatchers.IO + SupervisorJob()
+    override val coroutineContext = Dispatchers.IO + job
 
     // 일정 주기마다 특정 신호를 전달
     @OptIn(ObsoleteCoroutinesApi::class)
@@ -42,10 +44,13 @@ class QueueToAllowScheduler(
     fun start() {
         launch {
             tickerChannel.consumeEach {
-                queueTypes.forEach { queueType ->
-                    val count = queueService.allowUser(queueType, maxAllowedUsers)
-
-                    println("$queueType 허용열로 이동한 사용자 : $count")
+                try {
+                    queueTypes.forEach { queueType ->
+                        val count = queueService.allowUser(queueType, maxAllowedUsers)
+                        log.info { "$queueType 허용열로 이동한 사용자 : $count" }
+                    }
+                } catch (e: Exception) {
+                    log.error(e) { "스케줄러 실행 중 오류 발생" }
                 }
             }
         }
@@ -54,6 +59,8 @@ class QueueToAllowScheduler(
     @PreDestroy
     fun stop() {
         println("QueueToAllowScheduler 종료")
+
         tickerChannel.cancel() // 채널 정리
+        job.cancel() // launch 포함 모든 자식 코루틴 정리
     }
 }

@@ -1,6 +1,6 @@
 package com.example.integrated.queueing.event
 
-import com.example.integrated.Loggable
+import com.example.integrated.util.Loggable
 import kotlinx.coroutines.flow.Flow
 import org.springframework.http.MediaType
 import org.springframework.http.codec.ServerSentEvent

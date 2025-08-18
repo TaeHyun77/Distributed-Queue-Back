@@ -1,6 +1,6 @@
 package com.example.integrated.queueing.kafka
 
-import com.example.integrated.Loggable
+import com.example.integrated.util.Loggable
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.beans.factory.annotation.Value
@@ -15,7 +15,6 @@ class KafkaProducerService (
 
     @Value("\${queue.event.topic.name}")
     private lateinit var queueEventTopicName: String
-
 
     fun sendMessage(queueType: String) {
         try {

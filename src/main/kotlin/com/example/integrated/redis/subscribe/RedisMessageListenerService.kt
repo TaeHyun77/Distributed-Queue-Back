@@ -1,6 +1,6 @@
 package com.example.integrated.redis.subscribe
 
-import com.example.integrated.Loggable
+import com.example.integrated.util.Loggable
 import com.example.integrated.queueing.event.QueueEventPayload
 import com.example.integrated.queueing.event.SseEventService
 import com.example.integrated.util.CHANNEL_NAME

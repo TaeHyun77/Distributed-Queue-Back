@@ -1,6 +1,6 @@
 package com.example.integrated.queueing.kafka
 
-import com.example.integrated.Loggable
+import com.example.integrated.util.Loggable
 import com.example.integrated.redis.subscribe.RedisPublisher
 import com.example.integrated.util.CHANNEL_NAME
 import com.fasterxml.jackson.databind.ObjectMapper

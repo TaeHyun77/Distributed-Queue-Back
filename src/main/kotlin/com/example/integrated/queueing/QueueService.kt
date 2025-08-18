@@ -1,6 +1,6 @@
 package com.example.integrated.queueing
 
-import com.example.integrated.Loggable
+import com.example.integrated.util.Loggable
 import com.example.integrated.idempotency.IdempotencyService
 import com.example.integrated.redis.lock.RedisLockUtil
 import com.example.integrated.queueing.kafka.KafkaProducerService
@@ -10,15 +10,8 @@ import com.example.integrated.util.ACCESS_TOKEN
 import com.example.integrated.util.ALLOW_QUEUE
 import com.example.integrated.util.TOKEN_TTL_INFO
 import com.example.integrated.util.WAIT_QUEUE
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
-import kotlinx.coroutines.channels.TickerMode
-import kotlinx.coroutines.channels.ticker
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactive.awaitSingle
 import org.springframework.data.redis.core.ReactiveRedisTemplate
@@ -26,9 +19,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseCookie
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.reactive.ServerHttpResponse
-import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
-import reactor.core.publisher.Sinks
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -73,25 +64,19 @@ class QueueService (
         enterTimestamp: Long
     ): String {
 
-        log.info { "Current thread: ${Thread.currentThread().name}" }
-
+        // 두 비동기 작업이 모두 완료된 후에야 다음 로직이 실행됨
         coroutineScope {
 
-            val waitTime = measureTimeMillis {
+            val inWaitDeferred = async { searchUserRanking(userId, queueType, "wait") }
+            val inAllowDeferred = async { searchUserRanking(userId, queueType, "allow") }
 
-                // 두 작업을 병렬로 실행
-                val inWaitDeferred = async { searchUserRanking(userId, queueType, "wait") }
-                val inAllowDeferred = async { searchUserRanking(userId, queueType, "allow") }
+            // await() : 해당 async 작업의 결과가 나올 때까지 현재 코루틴을 일시 중단( suspend ) 시킴
+            val inWait = inWaitDeferred.await()
+            val inAllow = inAllowDeferred.await()
 
-                val inWait = inWaitDeferred.await()
-                val inAllow = inAllowDeferred.await()
-
-
-                if (inWait != -1L || inAllow != -1L) {
-                    throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER)
-                }
+            if (inWait != -1L || inAllow != -1L) {
+                throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER)
             }
-            log.info { "wait : $waitTime" }
         }
 
         val waitQueueKey = queueType + WAIT_QUEUE
@@ -364,4 +349,6 @@ class QueueService (
 
         return movedCount
     }
+
+
 }
