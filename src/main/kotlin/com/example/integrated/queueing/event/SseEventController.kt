@@ -16,7 +16,7 @@ class SseEventController(
 ): Loggable {
 
     @GetMapping("/stream", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
-    suspend fun streamQueue(
+    fun streamQueue(
         @RequestParam userId: String,
         @RequestParam queueType: String
     ): Flow<ServerSentEvent<String>> {
