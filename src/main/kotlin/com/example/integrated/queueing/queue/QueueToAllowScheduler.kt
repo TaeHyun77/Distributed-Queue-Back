@@ -1,4 +1,4 @@
-package com.example.integrated.queueing
+package com.example.integrated.queueing.queue
 
 import com.example.integrated.util.Loggable
 import jakarta.annotation.PostConstruct

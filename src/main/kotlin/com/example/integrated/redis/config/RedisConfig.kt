@@ -1,11 +1,6 @@
 package com.example.integrated.redis.config
 
 import com.example.integrated.util.Loggable
-import com.example.integrated.queueing.QueueService
-import com.example.integrated.queueing.event.QueueEventPayload
-import com.example.integrated.redis.subscribe.RedisMessageListenerService
-import com.example.integrated.util.CHANNEL_NAME
-import kotlinx.coroutines.reactor.mono
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -13,10 +8,7 @@ import org.springframework.context.annotation.Primary
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory
 import org.springframework.data.redis.core.ReactiveRedisTemplate
-import org.springframework.data.redis.core.RedisTemplate
-import org.springframework.data.redis.listener.ChannelTopic
 import org.springframework.data.redis.listener.ReactiveRedisMessageListenerContainer
-import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer
 import org.springframework.data.redis.serializer.RedisSerializationContext
 import org.springframework.data.redis.serializer.StringRedisSerializer
 

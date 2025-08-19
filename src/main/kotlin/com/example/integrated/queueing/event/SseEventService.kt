@@ -1,7 +1,7 @@
 package com.example.integrated.queueing.event
 
 import com.example.integrated.util.Loggable
-import com.example.integrated.queueing.QueueService
+import com.example.integrated.queueing.queue.QueueService
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -23,7 +23,7 @@ class SseEventService(
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    suspend fun streamQueueEvents(
+    fun streamQueueEvents(
         userId: String,
         queueType: String
     ): Flow<ServerSentEvent<String>> {

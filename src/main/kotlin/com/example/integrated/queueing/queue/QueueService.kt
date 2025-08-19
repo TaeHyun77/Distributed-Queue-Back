@@ -1,4 +1,4 @@
-package com.example.integrated.queueing
+package com.example.integrated.queueing.queue
 
 import com.example.integrated.util.Loggable
 import com.example.integrated.idempotency.IdempotencyService
@@ -26,7 +26,6 @@ import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.time.Duration
 import java.time.Instant
-import kotlin.system.measureTimeMillis
 
 @Service
 class QueueService (
@@ -95,7 +94,7 @@ class QueueService (
         val rank = searchUserRanking(userId, queueType, "wait")
         log.info{"${userId}님 ${rank}번째로 사용자 대기열 등록 성공" }
 
-        return "해당 사용자는 이미 대기열에 등록되셨습니다."
+        return "REGISTERED"
     }
 
     /**
@@ -204,19 +203,18 @@ class QueueService (
 
     // TTL 키 삭제 로직
     private suspend fun removeTtlKey(userId: String) {
+
         val ttlRemovedCount = reactiveRedisTemplate.opsForZSet()
             .remove(TOKEN_TTL_INFO, userId)
             .awaitSingle()
 
-        if (ttlRemovedCount == 0L) {
-            log.warn { "$userId TTL 키가 존재하지 않아 삭제되지 않았습니다." }
-        }
+        if (ttlRemovedCount == 0L) log.warn { "$userId TTL 키가 존재하지 않아 삭제되지 않았습니다." }
     }
 
     /**
      * 유효성 검사를 위한 토큰 생성
      */
-    suspend fun generateAccessToken(
+    fun generateAccessToken(
         userId: String,
         performanceId: Long
     ): String {
@@ -239,7 +237,7 @@ class QueueService (
      *
      * ServerWebExchange : 요청/응답 전체를 포괄하는 컨텍스트, ServerHttpResponse : HTTP 응답 처리에만 특화된 객체
      */
-    suspend fun sendCookie(
+    fun sendCookie(
         userId: String,
         performanceId: Long,
         response: ServerHttpResponse
@@ -349,6 +347,4 @@ class QueueService (
 
         return movedCount
     }
-
-
 }
