@@ -2,21 +2,23 @@
 
 ---
 
-이번 프로젝트는 좌석 예약과 대기열 기능을 통합한 예약 시스템입니다.<br><br>
+이 프로젝트는 좌석 예약과 대기열 기능을 통합한 예약 시스템입니다.<br><br>
 
-본 프로젝트에서는 예약 기능의 동시성 문제를 방지하기 위해 `Redis 기반의 Mutex Lock`과 멱등성 로직을 적용하였고, 대기열 기능에서는 `Redis ZSet`으로 순서를 보장하며 SSE Sink로 실시간 권한 및 순위 변동을 전달하였으며, 분산 환경에서 발생하는 SSE Sink 동기화 문제를 해결하기 위해 Kafka를 통한 안정적인 메시지 전달과 `Redis Pub/Sub`을 활용하여 모든 서버가 동일한 이벤트를 수신, 전달할 수 있도록 구현하였습니다.
-<br><br>
+예약 기능의 동시성 문제를 방지하기 위해 `Redis 기반의 Mutex Lock`과 멱등성 로직을 적용하였고, 대기열 기능에서는 `Redis ZSet`으로 순서를 보장하며 SSE Sink로 실시간 권한 및 순위 변동을 전달하였으며, 기존의 단일 서버 대기열 시스템과 달리, 분산 환경에서의 동작도 함께 고려하였습니다.
+
+분산 환경에서 발생하는 SSE Sink 동기화 문제를 해결하기 위해 Kafka를 통한 안정적인 메시지 전달과 `Redis Pub/Sub`을 활용하여 모든 서버가 동일한 이벤트를 수신, 전달할 수 있도록 하였습니다.<br><br>
+
 ### 기술 스택
 
 ---
 
-Backend : SpringBoot, Java, Kotlin
+Backend : SpringBoot, Kotlin, Coroutine
 
 Frontend : React.js, JavaScript
 
-Database : MySQL, Redis
+Database : MySQL ( R2DBC ), Redis
 
-Infra : Kafka<br><br>
+Infra : Kafka, Docker<br><br>
 
 ### 아키텍처
 
