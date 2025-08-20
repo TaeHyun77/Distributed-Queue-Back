@@ -47,6 +47,7 @@ Infra : Kafka, Docker<br><br>
 <br><br>
 
 ### 기존 대기열 시스템에서의 개선점
+---
 
 기존 대기열 시스템에서는 MySQL과 Kafka Debezium Connector를 활용하여 이벤트를 전달하였으나, 이는 데이터베이스에 지나치게 의존적이었고 특정 지점에서 단일 장애점( SPOF )이 발생할 가능성이 있었습니다. 
 
