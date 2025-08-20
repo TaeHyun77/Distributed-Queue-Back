@@ -24,7 +24,7 @@ Infra : Kafka, Docker<br><br>
 
 ---
 
-<img width="797" height="389" alt="Image" src="https://github.com/user-attachments/assets/239afe7f-3afd-45b2-9340-23d464cf4f3e" /><br><br>
+<img width="1141" height="556" alt="Image" src="https://github.com/user-attachments/assets/1ba96b07-01c6-428a-a8c5-f1eecd641516" />
 
 **대기열 등록 동작 과정**
 
