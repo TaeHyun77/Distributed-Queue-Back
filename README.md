@@ -87,3 +87,5 @@ Infra : Kafka, Docker<br><br>
     요청을 보내어 고르게 처리되는지 확인
     
     <img width="1427" height="642" alt="Image" src="https://github.com/user-attachments/assets/75969a3e-7aa3-4dda-8318-2387d9781540" />
+
+### 분산 서버로 인한 redis zSet 순서가 지켜지지 않는 문제
