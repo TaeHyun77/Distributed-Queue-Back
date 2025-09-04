@@ -30,11 +30,16 @@ Infra : Kafka, Docker<br><br>
 
 <img width="622" height="232" alt="Image" src="https://github.com/user-attachments/assets/400df547-e600-4093-aa9c-19c2bd2bbccf" />
 
+**단일 서버에서의 대기열 등록 동작 과정**
+1. 대기열 등록 요청 시 참가한 대기열의 이름을 전달하며, 이 과정에서 SSE Sink 구독이 이루어집니다.
+2. Kafka의 대기열 토픽에 메시지를 발행( Produce )합니다.
+3. Kafka Consume을 통해 SSE sink로 전송되며, 사용자의 실시간 순위 및 예약 페이지 접근 권한을 전달받게 됩니다.<br><br>
+
 [ 분산 서버 ]
 
 <img width="1141" height="556" alt="Image" src="https://github.com/user-attachments/assets/1ba96b07-01c6-428a-a8c5-f1eecd641516" /><br><br>
 
-**대기열 등록 동작 과정**
+**분산 서버에서의 대기열 등록 동작 과정**
 
 - 모든 서버는 redis의 대기열 채널을 구독한 상태이며, 같은 consumer group으로 설정되어 있습니다.
 1. 대기열 등록 요청 시 참가한 대기열의 이름을 전달하며, 이 과정에서 SSE Sink 구독이 이루어집니다.
@@ -45,7 +50,7 @@ Infra : Kafka, Docker<br><br>
     
 4. 발행된 메시지는 서버 중 하나에서 소비( Consume )되어 Redis 대기열 채널로 전달됩니다.
 5. Redis 대기열 채널에 전달된 메시지는 이를 구독 중인 모든 서버에 전달됩니다.
-6. 결과적으로 각 서버의 SSE Sink로 전송되어 동기화가 이루어지며, 사용자의 실시간 순위 및 권한을 전달받게 됩니다.<br><br>
+6. 결과적으로 각 서버의 SSE Sink로 전송되어 동기화가 이루어지며, 사용자의 실시간 순위 및 예약 페이지 접근 권한을 전달받게 됩니다.<br><br>
 
 **예약 동작 과정**
 
