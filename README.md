@@ -98,11 +98,12 @@ Infra : Kafka, Docker<br><br>
     요청을 보내어 고르게 처리되는지 확인
     
     <img width="1427" height="642" alt="Image" src="https://github.com/user-attachments/assets/75969a3e-7aa3-4dda-8318-2387d9781540" />
-      <br>
+      <br><br>
       
 ### Nginx의 커넥션 관리 및 튜닝
+---
 
-<img width="1000" height="600" alt="aaa" src="https://github.com/user-attachments/assets/81ac2ac4-b02c-4b40-8f83-3c7c538644e5" />
+<img width="700" height="500" alt="aaa" src="https://github.com/user-attachments/assets/81ac2ac4-b02c-4b40-8f83-3c7c538644e5" />
 
 JMeter로 대기열 요청에 대해 1초 동안 스파이크 테스트를 진행한 결과, 2000건 이상부터 오류가 급격히 발생
 
