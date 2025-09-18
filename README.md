@@ -101,7 +101,7 @@ Infra : Kafka, Docker<br><br>
 
 ### Nginx의 커넥션 관리 및 튜닝
 
-![image.png](attachment:465e57ce-a777-4b2e-b8a6-198d9c6b7c1a:image.png)
+<img width="358" height="140" alt="aaa" src="https://github.com/user-attachments/assets/81ac2ac4-b02c-4b40-8f83-3c7c538644e5" />
 
 JMeter로 대기열 요청에 대해 1초 동안 스파이크 테스트를 진행한 결과, 2000건 이상부터 오류가 급격히 발생
 
