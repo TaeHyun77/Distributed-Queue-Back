@@ -103,9 +103,9 @@ Infra : Kafka, Docker<br><br>
 ### Nginx의 커넥션 관리 및 튜닝
 ---
 
-<img width="700" height="500" alt="aaa" src="https://github.com/user-attachments/assets/81ac2ac4-b02c-4b40-8f83-3c7c538644e5" />
+<p align="center"><img width="700" height="500" alt="aaa" src="https://github.com/user-attachments/assets/81ac2ac4-b02c-4b40-8f83-3c7c538644e5" />
 
-JMeter로 대기열 요청에 대해 1초 동안 스파이크 테스트를 진행한 결과, 2000건 이상부터 오류가 급격히 발생
+JMeter로 대기열 요청에 대해 1초 동안 스파이크 테스트를 진행한 결과, 2000건 이상부터 오류가 급격히 발생했습니다.
 
 현재 프로젝트는 Docker 컨테이너 환경에서 3개의 서버를 두고, Nginx를 통해 요청을 분산하고 있는데, 문제를 분석해보니 Nginx를 거치지 않고 서버에 직접 스파이크 테스트를 진행했을 때는 오류가 발생하지 않는 것을 확인했습니다.
 
