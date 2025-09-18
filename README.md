@@ -99,4 +99,19 @@ Infra : Kafka, Docker<br><br>
     
     <img width="1427" height="642" alt="Image" src="https://github.com/user-attachments/assets/75969a3e-7aa3-4dda-8318-2387d9781540" />
 
-### 분산 서버로 인한 redis zSet 순서가 지켜지지 않는 문제
+### Nginx의 커넥션 관리 및 튜닝
+
+![image.png](attachment:465e57ce-a777-4b2e-b8a6-198d9c6b7c1a:image.png)
+
+JMeter로 대기열 요청에 대해 1초 동안 스파이크 테스트를 진행한 결과, 2000건 이상부터 오류가 급격히 발생
+
+현재 프로젝트는 Docker 컨테이너 환경에서 3개의 서버를 두고, Nginx를 통해 요청을 분산하고 있는데, 문제를 분석해보니 Nginx를 거치지 않고 서버에 직접 스파이크 테스트를 진행했을 때는 오류가 발생하지 않는 것을 확인했습니다.
+
+이를 통해, Nginx에서의 TCP 연결 관리 과정( 3-way handshake와 4-way handshake 종료 과정 )에서 다량의 TIME_WAIT가 발생하고, 이로 인해 오류가 발생한다고 판단했습니다.
+
+오류가 발생한 요청에서는 `NoHttpResponseException`이 발생했는데, 다음과 같은 원인 때문입니다.
+
+- Nginx가 백엔드 서버의 응답을 받기 전에 연결이 끊어진 경우
+- Nginx의 타임아웃 시간 내에 서버가 응답을 반환하지 못한 경우
+- Nginx와 백엔드 서버 간 TIME_WAIT 상태가 누적되어 연결 자원이 부족해져 새로운 연결을 할 수 없는 경우
+- …
