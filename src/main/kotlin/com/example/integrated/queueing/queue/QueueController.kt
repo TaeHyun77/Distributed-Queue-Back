@@ -14,30 +14,32 @@ import java.time.Instant
 @RequestMapping("/queue")
 @RestController
 class QueueController (
-    private val queueService: QueueService
-): Loggable {
+    private val queueService: QueueService,
 
-    @Value("\${SERVER_NAME:unknown}")
+    @Value("\${SERVER_NAME}")
     private val serverName: String? = null
+
+): Loggable {
 
     @PostMapping("/register/{userId}/{queueType}")
     suspend fun registerUser(
         @PathVariable("userId") userId: String,
-        @PathVariable("queueType") queueType: String,
-        request: ServerHttpRequest
-    ): ResponseEntity<String> {
+        @PathVariable("queueType") queueType: String
+    ): String {
 
-        log.info { "server : $serverName" }
+        log.info { "server name: $serverName" }
 
         val now = Instant.now()
-        val enterTimestamp = now.epochSecond * 1_000_000_000L + now.nano
 
-        val idempotencyKey: String = request.headers["Idempotency-key"]?.firstOrNull()
-            ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)
+        // 초 값 → 마이크로초 , 나노초 값 → 마이크로초
+        val enterTimestamp = now.epochSecond * 1_000_000L + now.nano / 1_000L
 
-        log.info { "등록 사용자 정보 , userId: $userId, queueType: $queueType enterTimestamp: $enterTimestamp idempotencyKey : $idempotencyKey" }
+        /*val idempotencyKey: String = request.headers["Idempotency-key"]?.firstOrNull()
+            ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)*/
 
-        val result = queueService.register(userId, queueType, enterTimestamp, idempotencyKey)
+        log.info { "등록 사용자 정보 , userId: $userId, queueType: $queueType enterTimestamp: $enterTimestamp" }
+
+        val result = queueService.registerUserToWaitQueue(userId, queueType, enterTimestamp)
 
         return result
     }
@@ -46,22 +48,22 @@ class QueueController (
     @GetMapping("/createCookie")
     suspend fun sendCookie(
         @RequestParam(name = "userId") userId: String,
-        @RequestParam(name = "performanceId") performanceId: Long,
+        @RequestParam(name = "queueType") queueType: String,
         response: ServerHttpResponse
     ): ResponseEntity<String> {
 
-        return queueService.sendCookie(userId, performanceId, response)
+        return queueService.sendCookie(userId, queueType, response)
     }
 
     // 토큰의 유효성 판단
     @GetMapping("/isValidateToken")
     suspend fun isAccessTokenValid(
         @RequestParam(name = "userId") userId: String,
-        @RequestParam(name = "performanceId") performanceId: Long,
+        @RequestParam(name = "queueType") queueType: String,
         @RequestParam(name = "token") token: String
-        ): Boolean {
+    ): Boolean {
 
-        return queueService.isAccessTokenValid(userId, performanceId, token)
+        return queueService.isAccessTokenValid(userId, queueType, token)
     }
 
     // 대기열 or 참가열 등록 취소
@@ -70,7 +72,7 @@ class QueueController (
         @RequestParam(name = "userId") userId: String,
         @RequestParam(name = "queueType") queueType: String,
         @RequestParam(name = "queueCategory") queueCategory: String
-    ): ResponseEntity<String> {
+    ): Boolean {
 
         return queueService.cancelUser(userId, queueType.split(":")[0], queueCategory)
     }

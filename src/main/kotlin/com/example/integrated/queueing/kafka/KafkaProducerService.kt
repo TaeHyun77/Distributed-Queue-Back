@@ -9,12 +9,13 @@ import org.springframework.stereotype.Service
 
 @Service
 class KafkaProducerService (
+
+    @Value("\${queue.event.topic.name}")
+    private var queueEventTopicName: String,
+
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper
 ): Loggable {
-
-    @Value("\${queue.event.topic.name}")
-    private lateinit var queueEventTopicName: String
 
     fun sendMessage(queueType: String) {
         try {
