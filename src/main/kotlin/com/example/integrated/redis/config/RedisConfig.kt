@@ -19,16 +19,17 @@ class RedisConfig(
 
 ): Loggable {
 
+    // Redis와 연결을 맺어주는 팩토리 객체 생성
     @Bean
     fun lettuceConnectionFactory(): LettuceConnectionFactory {
         return LettuceConnectionFactory(host, port)
     }
 
-    /** Reactive RedisTemplate */
+    // 실제 애플리케이션에서 Redis와 데이터를 주고받는 인터페이스
     @Bean
-    @Primary
     fun reactiveRedisTemplate(): ReactiveRedisTemplate<String, String> {
 
+        // StringRedisSerializer()를 사용해서 key와 value 모두 String으로 직렬화 / 역직렬화하도록 설정
         val context = RedisSerializationContext
             .newSerializationContext<String, String>(StringRedisSerializer())
             .value(StringRedisSerializer())
@@ -37,21 +38,13 @@ class RedisConfig(
         return ReactiveRedisTemplate(lettuceConnectionFactory(), context)
     }
 
-    /*
-    * ReactiveRedisMessageListenerContainer : Spring Data Redis에서 제공하는 Reactive Redis pub/sub의 subscribe를 위한 메세지 리스너
-    * ⇒ 특정 채널에서 비동기적으로 메세지를 수신할 수 있음
-    *
-    * receiveMessages : 메세지 수신 처리가 일어나는 함수
-    * */
+    // 레디스의 Pub/Sub 기능을 위한 리스너 컨테이너
     @Bean
     fun listenerContainer(
+        // 위에서 등록한 lettuceConnectionFactory Bean이 주입됨
+        lettuceConnectionFactory: ReactiveRedisConnectionFactory
+    ): ReactiveRedisMessageListenerContainer {
 
-        // 자동으로 lettuceConnectionFactory Bean이 주입됨
-        connectionFactory: ReactiveRedisConnectionFactory
-    )
-    : ReactiveRedisMessageListenerContainer {
-
-        return ReactiveRedisMessageListenerContainer(connectionFactory)
-
+        return ReactiveRedisMessageListenerContainer(lettuceConnectionFactory)
     }
 }

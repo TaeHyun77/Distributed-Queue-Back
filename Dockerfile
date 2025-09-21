@@ -5,7 +5,7 @@ FROM amazoncorretto:17-alpine
 WORKDIR /app
 
 # 빌드 결과물 복사
-COPY build/libs/Integrated-0.0.1-SNAPSHOT.jar queueing.jar
+COPY build/libs/Integrated-0.0.1-SNAPSHOT.jar integrated-queueing.jar
 
 # 애플리케이션 실행
-CMD ["java", "-jar", "queueing.jar"]
+CMD ["java", "-jar", "integrated-queueing.jar"]

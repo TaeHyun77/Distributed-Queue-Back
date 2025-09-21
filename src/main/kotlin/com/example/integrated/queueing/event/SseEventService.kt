@@ -11,6 +11,7 @@ import kotlinx.coroutines.reactive.asFlow
 import org.springframework.http.codec.ServerSentEvent
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Sinks
+import kotlin.compareTo
 
 @Service
 class SseEventService(
@@ -42,8 +43,9 @@ class SseEventService(
                             log.info{ "참가열 존재 !" }
 
                             val json = objectMapper.writeValueAsString(
-                                mapOf("event" to "confirmed", "user_id" to userId)
+                                mapOf("event" to "confirmed", "userId" to userId)
                             )
+
                             emit(ServerSentEvent.builder(json).build())
 
                             // 대기열에 존재한다면 순위 전송
@@ -64,12 +66,14 @@ class SseEventService(
                                     mapOf("event" to "update", "rank" to rank)
                                 )
                             }
+
                             emit(ServerSentEvent.builder(json).build())
                         }
                     } catch (ex: Exception) {
                         val errorJson = objectMapper.writeValueAsString(
                             mapOf("event" to "error", "message" to "서버 오류 발생")
                         )
+
                         emit(ServerSentEvent.builder(errorJson).build())
                     }
                 }

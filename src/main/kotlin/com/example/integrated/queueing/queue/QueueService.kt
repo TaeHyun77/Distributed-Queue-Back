@@ -2,7 +2,6 @@ package com.example.integrated.queueing.queue
 
 import com.example.integrated.util.Loggable
 import com.example.integrated.idempotency.IdempotencyService
-import com.example.integrated.redis.lock.RedisLockUtil
 import com.example.integrated.queueing.kafka.KafkaProducerService
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
@@ -11,9 +10,12 @@ import com.example.integrated.util.ALLOW_QUEUE
 import com.example.integrated.util.TOKEN_TTL_INFO
 import com.example.integrated.util.WAIT_QUEUE
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactive.awaitSingle
+import kotlinx.coroutines.reactor.awaitSingle
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseCookie
@@ -26,37 +28,30 @@ import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.time.Duration
 import java.time.Instant
+import kotlin.collections.component1
+import kotlin.collections.component2
 
 @Service
 class QueueService (
-
+    private val kafkaProducerService: KafkaProducerService,
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
-    private val idempotencyService: IdempotencyService,
-    private val redisLockUtil: RedisLockUtil,
-    private val kafkaProducerService: KafkaProducerService
+    private val idempotencyService: IdempotencyService
 ): Loggable {
 
-    suspend fun register(
-        userId: String,
-        queueType: String,
-        enterTimestamp: Long,
-        idempotencyKey: String
-    ): ResponseEntity<String> {
+    /*    suspend fun register(
+            userId: String,
+            queueType: String,
+            enterTimestamp: Long,
+            idempotencyKey: String
+        ): ResponseEntity<String> {
 
-        return redisLockUtil.acquireLockAndRun("$userId:$queueType:queueing")
-        { idempotencyService.execute(
-            key = idempotencyKey,
-            url = "/queue/register",
-            method = "POST",
-        ) { registerUserToWaitQueue(userId, queueType, enterTimestamp) }
-        }
-    }
+            return idempotencyService.execute(
+                key = idempotencyKey,
+                url = "/queue/register",
+                method = "POST",
+            ) { registerUserToWaitQueue(userId, queueType, enterTimestamp) }
+        }*/
 
-    /**
-     * 대기열 등록
-     *
-     * queueType은 "reserve_[대기열 종류]"의 형태로 되어 있음
-    * */
     suspend fun registerUserToWaitQueue(
         userId: String,
         queueType: String,
@@ -66,33 +61,27 @@ class QueueService (
         // 두 비동기 작업이 모두 완료된 후에야 다음 로직이 실행됨
         coroutineScope {
 
-            val inWaitDeferred = async { searchUserRanking(userId, queueType, "wait") }
-            val inAllowDeferred = async { searchUserRanking(userId, queueType, "allow") }
-
-            // await() : 해당 async 작업의 결과가 나올 때까지 현재 코루틴을 일시 중단( suspend ) 시킴
-            val inWait = inWaitDeferred.await()
-            val inAllow = inAllowDeferred.await()
+            val (inWait, inAllow) = awaitAll(
+                async { searchUserRanking(userId, queueType, "wait") },
+                async { searchUserRanking(userId, queueType, "allow") }
+            )
 
             if (inWait != -1L || inAllow != -1L) {
                 throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER)
             }
         }
 
-        val waitQueueKey = queueType + WAIT_QUEUE
-
         val wasAdded = reactiveRedisTemplate.opsForZSet()
-            .add(waitQueueKey, userId, enterTimestamp.toDouble())
-            .awaitFirstOrNull() // Boolean 혹은 null 반환
+            .add(queueType + WAIT_QUEUE, userId, enterTimestamp.toDouble())
+            .awaitSingle() // true : add 성공 , false : add 실패 -> 이미 존재
 
-        if (wasAdded == null || !wasAdded) {
+        if (!wasAdded) {
             throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER)
         } else {
+            log.info { "대기열에 성공적으로 등록 완료 !" }
             // 대기열에 성공적으로 추가 되었다면 카프카 메세지 전송
             kafkaProducerService.sendMessage(queueType)
         }
-
-        val rank = searchUserRanking(userId, queueType, "wait")
-        log.info{"${userId}님 ${rank}번째로 사용자 대기열 등록 성공" }
 
         return "REGISTERED"
     }
@@ -108,12 +97,11 @@ class QueueService (
     ): Long {
 
         val keyType = if (queueCategory == "wait") WAIT_QUEUE else ALLOW_QUEUE
-
         val queueKey = queueType + keyType
 
         val redisRank = reactiveRedisTemplate.opsForZSet()
             .rank(queueKey, userId)
-            .awaitFirstOrNull()
+            .awaitSingleOrNull() // rank 값이 존재 : Long 값 반환 , rank 값이 존재하지 않음 : null 반환
 
         val rank = redisRank?.takeIf { it >= 0 }?.plus(1) ?: -1
 
@@ -126,7 +114,11 @@ class QueueService (
         return rank
     }
 
-    suspend fun cancelUser(userId: String, queueType: String, queueCategory: String): ResponseEntity<String> {
+    suspend fun cancelUser(
+        userId: String,
+        queueType: String,
+        queueCategory: String
+    ): Boolean {
         return when (queueCategory) {
             "wait" -> cancelWaitOrAllow(userId, queueType)
             "allow" -> cancelAllowUser(userId, queueType)
@@ -140,65 +132,46 @@ class QueueService (
     * 승격 로직이 wait에서 사용자를 삭제하고 allow로 옮기기 전에 취소 로직이 allow에서 삭제를 진행하는 경우
     * ⇒ 이러한 타이밍으로 인한 경쟁 상태를 별도로 관리하여 문제를 해결
     * */
-    private suspend fun cancelWaitOrAllow(userId: String, queueType: String): ResponseEntity<String> {
+    suspend fun cancelWaitOrAllow(
+        userId: String, queueType: String
+    ): Boolean {
         val waitQueueKey = "$queueType$WAIT_QUEUE"
 
-        val removedCount = reactiveRedisTemplate.opsForZSet()
+        val removedResult = reactiveRedisTemplate.opsForZSet()
             .remove(waitQueueKey, userId)
-            .awaitSingle()
+            .awaitSingle() // 0 : 해당 사용자 없음 , 1 : 해당 사용자 삭제
 
-        return if (removedCount > 0L) {
+        if (removedResult == 1L) {
             kafkaProducerService.sendMessage(queueType)
-            ResponseEntity.ok("대기열 삭제 완료")
-        } else {
-            val allowResult = cancelAllowUserForWaitContext(userId, queueType)
-            allowResult ?: run {
-                log.info { "이미 삭제가 처리된 사용자" }
-                ResponseEntity.ok("이미 삭제가 처리된 사용자")
-            }
+            log.info { "대기열 삭제 완료" }
+            return true
         }
-    }
 
-    // 경쟁 상태 문제로 인한 별도의 로직
-    private suspend fun cancelAllowUserForWaitContext(
-        userId: String, queueType: String
-    ): ResponseEntity<String>? {
-        val allowQueueKey = "$queueType$ALLOW_QUEUE"
+        // 대기열에서 삭제 실패했다면 참가열에서 삭제 시도
+        val removedFromAllow = cancelAllowUser(userId, queueType)
 
-        val allowRemovedCount = reactiveRedisTemplate.opsForZSet()
-            .remove(allowQueueKey, userId)
-            .awaitSingle()
+        if (removedFromAllow){
+            log.info { "참가열 삭제 완료" }
+        } else {
+            log.info { "참가열 삭제 실패" }
+        }
 
-        // 승격 중 타이밍 문제로 간주
-        if (allowRemovedCount == 0L) return null
-
-        removeTtlKey(userId)
-        return ResponseEntity.ok("참가열 삭제 완료")
+        return removedFromAllow
     }
 
     suspend fun cancelAllowUser(
         userId: String,
-        queueType: String,
-    ): ResponseEntity<String> {
+        queueType: String
+    ): Boolean {
+        val allowQueueKey = "$queueType$ALLOW_QUEUE"
 
-        try {
-            val allowQueueKey = "$queueType$ALLOW_QUEUE"
+        val isRemoved = reactiveRedisTemplate.opsForZSet()
+            .remove(allowQueueKey, userId)
+            .awaitSingle() == 1L
 
-            val allowRemovedCount = reactiveRedisTemplate.opsForZSet()
-                .remove(allowQueueKey, userId)
-                .awaitSingle()
+        if (isRemoved) removeTtlKey(userId)
 
-            if (allowRemovedCount == 0L) {
-                throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.USER_NOT_FOUND_IN_THE_QUEUE)
-            }
-
-            removeTtlKey(userId)
-            return ResponseEntity.ok("참가열 삭제 완료")
-
-        } catch (e: ReserveException) {
-            log.error { "예약 취소 중 오류 발생" }
-            throw e
-        }
+        return isRemoved
     }
 
     // TTL 키 삭제 로직
@@ -211,17 +184,14 @@ class QueueService (
         if (ttlRemovedCount == 0L) log.warn { "$userId TTL 키가 존재하지 않아 삭제되지 않았습니다." }
     }
 
-    /**
-     * 유효성 검사를 위한 토큰 생성
-     */
     fun generateAccessToken(
         userId: String,
-        performanceId: Long
+        queueType: String
     ): String {
 
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
-            val raw = performanceId.toString() + ACCESS_TOKEN + userId
+            val raw = queueType + ACCESS_TOKEN + userId
             val hash = digest.digest(raw.toByteArray(StandardCharsets.UTF_8))
 
             buildString {
@@ -232,20 +202,15 @@ class QueueService (
         }
     }
 
-    /**
-     * 생성한 토큰을 쿠키에 저장
-     *
-     * ServerWebExchange : 요청/응답 전체를 포괄하는 컨텍스트, ServerHttpResponse : HTTP 응답 처리에만 특화된 객체
-     */
     fun sendCookie(
         userId: String,
-        performanceId: Long,
+        queueType: String,
         response: ServerHttpResponse
     ): ResponseEntity<String> {
 
         val encodedName = URLEncoder.encode(userId, StandardCharsets.UTF_8)
-        val token = generateAccessToken(userId, performanceId)
-        val cookieName = performanceId.toString() + "_user-access-cookie_$encodedName"
+        val token = generateAccessToken(userId, queueType)
+        val cookieName = "reserve_user-access-cookie_$encodedName"
 
         val responseCookie = ResponseCookie.from(cookieName, token)
             .path("/")
@@ -257,56 +222,44 @@ class QueueService (
         return ResponseEntity.ok("쿠키 발급 완료")
     }
 
-    /**
-     * 토큰 유효성 검사
-     */
     suspend fun isAccessTokenValid(
         userId: String,
-        performanceId: Long,
+        queueType: String,
         token: String
     ): Boolean {
 
+        // 해당 사용자의 TTL 값 조회
+        // true : 사용자의 TTL 값 반환 , null : 값이 존재하지 않음
         val ttlInfo = reactiveRedisTemplate
             .opsForZSet()
             .score(TOKEN_TTL_INFO, userId)
-            .awaitFirstOrNull() ?: return false
+            .awaitSingleOrNull() ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_TTL_INFO);
 
         val expireTime = ttlInfo.toLong()
         val now = Instant.now().epochSecond
 
-        if (expireTime < now) return false
-
-        return if (generateAccessToken(userId, performanceId) == token) {
-            log.info { "유효한 토큰입니다 !" }
-            true
-        } else false
+        return generateAccessToken(userId, queueType) == token && now <= expireTime
     }
 
-    /**
-     * 대기열에서 새로고침 시 대기열 후순위 재등록 로직 - WAIT
-     */
-    suspend fun reEnterWaitQueue(
-        userId: String,
-        queueType: String
-    ) {
+//    suspend fun reEnterWaitQueue(
+//        userId: String,
+//        queueType: String
+//    ) {
+//
+//        val now = Instant.now()
+//        val newTimestamp = now.epochSecond * 1_000_000_000L + now.nano
+//        val waitQueueKey = "$queueType$WAIT_QUEUE"
+//
+//        val added = reactiveRedisTemplate
+//            .opsForZSet()
+//            .add(waitQueueKey, userId, newTimestamp.toDouble())
+//            .awaitSingle()
+//
+//        if (added == true) {
+//            kafkaProducerService.sendMessage(queueType)
+//        }
+//    }
 
-        val now = Instant.now()
-        val newTimestamp = now.epochSecond * 1_000_000_000L + now.nano
-        val waitQueueKey = "$queueType$WAIT_QUEUE"
-
-        val added = reactiveRedisTemplate
-            .opsForZSet()
-            .add(waitQueueKey, userId, newTimestamp.toDouble())
-            .awaitFirstOrNull()
-
-        if (added == true) {
-            kafkaProducerService.sendMessage(queueType)
-        }
-    }
-
-    /**
-     * 참가열로 사용자 이동 + 토큰 TTL 저장
-     */
     suspend fun allowUser(
         queueType: String,
         count: Long
@@ -318,28 +271,28 @@ class QueueService (
             .opsForZSet()
             .popMin(waitQueueKey, count)
             .collectList()
-            .awaitSingle()
+            .awaitSingle() // 값이 있으면 List<T> 반환, 값이 없어도 빈 List 반환
 
         if (poppedUsers.isEmpty()) return 0
 
+        val now = Instant.now()
+        val timestamp = now.epochSecond * 1_000_000_000L + now.nano
+        val expireAt = now.plus(Duration.ofMinutes(10)).epochSecond.toDouble()
+
         var movedCount = 0L
 
-        for (user in poppedUsers) {
-            val userId: String = user.value.toString()
-
-            val now = Instant.now()
-            val timestamp = now.epochSecond * 1_000_000_000L + now.nano
-            val expireAt = now.plus(Duration.ofMinutes(10)).epochSecond
+        poppedUsers.forEach { user ->
+            val userId = user.value.toString()
 
             // 참가열에 사용자 이동
             reactiveRedisTemplate.opsForZSet()
                 .add(allowQueueKey, userId, timestamp.toDouble())
-                .awaitFirstOrNull()
+                .awaitSingle()
 
             // 참가열 TTL 생성
             reactiveRedisTemplate.opsForZSet()
-                .add(TOKEN_TTL_INFO, userId, expireAt.toDouble())
-                .awaitFirstOrNull()
+                .add(TOKEN_TTL_INFO, userId, expireAt)
+                .awaitSingle()
 
             kafkaProducerService.sendMessage(queueType)
             movedCount++
