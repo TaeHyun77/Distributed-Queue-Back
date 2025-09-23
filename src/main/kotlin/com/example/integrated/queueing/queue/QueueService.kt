@@ -1,19 +1,17 @@
 package com.example.integrated.queueing.queue
 
 import com.example.integrated.util.Loggable
-import com.example.integrated.idempotency.IdempotencyService
 import com.example.integrated.queueing.kafka.KafkaProducerService
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
 import com.example.integrated.util.ACCESS_TOKEN
 import com.example.integrated.util.ALLOW_QUEUE
+import com.example.integrated.util.IDEMPOTENCE_TTL
 import com.example.integrated.util.TOKEN_TTL_INFO
 import com.example.integrated.util.WAIT_QUEUE
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.reactive.awaitFirstOrNull
-import kotlinx.coroutines.reactive.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.data.redis.core.ReactiveRedisTemplate
@@ -34,29 +32,35 @@ import kotlin.collections.component2
 @Service
 class QueueService (
     private val kafkaProducerService: KafkaProducerService,
-    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
-    private val idempotencyService: IdempotencyService
+    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
 ): Loggable {
-
-    /*    suspend fun register(
-            userId: String,
-            queueType: String,
-            enterTimestamp: Long,
-            idempotencyKey: String
-        ): ResponseEntity<String> {
-
-            return idempotencyService.execute(
-                key = idempotencyKey,
-                url = "/queue/register",
-                method = "POST",
-            ) { registerUserToWaitQueue(userId, queueType, enterTimestamp) }
-        }*/
 
     suspend fun registerUserToWaitQueue(
         userId: String,
         queueType: String,
-        enterTimestamp: Long
-    ): String {
+        enterTimestamp: Long,
+        idempotencyKey: String
+    ): RegisterResult {
+
+        val now = Instant.now().epochSecond * 1_000_000L + Instant.now().nano / 1_000L
+
+        val isExists = reactiveRedisTemplate.opsForZSet()
+            .score(IDEMPOTENCE_TTL, idempotencyKey)
+            .awaitSingleOrNull()
+
+        // 이미 존재하고 TTL이 만료되지 않았다면 → 중복 요청 처리
+        if (isExists != null && now <= isExists) {
+            log.info { "중복된 요청입니다." }
+            return RegisterResult.ALREADY_EXISTS
+        }
+
+        val idempotencyExpired = enterTimestamp + 600_000_000L // 현재 시간 + 10분 더한 값
+
+        reactiveRedisTemplate.opsForZSet()
+            .add(IDEMPOTENCE_TTL, idempotencyKey, idempotencyExpired.toDouble())
+            .awaitSingle()
+
+        log.info { "멱등키 값을 저장하였습니다." }
 
         // 두 비동기 작업이 모두 완료된 후에야 다음 로직이 실행됨
         coroutineScope {
@@ -83,7 +87,7 @@ class QueueService (
             kafkaProducerService.sendMessage(queueType)
         }
 
-        return "REGISTERED"
+        return RegisterResult.REGISTERED
     }
 
     /**
@@ -230,8 +234,7 @@ class QueueService (
 
         // 해당 사용자의 TTL 값 조회
         // true : 사용자의 TTL 값 반환 , null : 값이 존재하지 않음
-        val ttlInfo = reactiveRedisTemplate
-            .opsForZSet()
+        val ttlInfo = reactiveRedisTemplate.opsForZSet()
             .score(TOKEN_TTL_INFO, userId)
             .awaitSingleOrNull() ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_TTL_INFO);
 
@@ -241,24 +244,24 @@ class QueueService (
         return generateAccessToken(userId, queueType) == token && now <= expireTime
     }
 
-//    suspend fun reEnterWaitQueue(
-//        userId: String,
-//        queueType: String
-//    ) {
-//
-//        val now = Instant.now()
-//        val newTimestamp = now.epochSecond * 1_000_000_000L + now.nano
-//        val waitQueueKey = "$queueType$WAIT_QUEUE"
-//
-//        val added = reactiveRedisTemplate
-//            .opsForZSet()
-//            .add(waitQueueKey, userId, newTimestamp.toDouble())
-//            .awaitSingle()
-//
-//        if (added == true) {
-//            kafkaProducerService.sendMessage(queueType)
-//        }
-//    }
+    suspend fun refreshWaitQueue(
+        userId: String,
+        queueType: String
+    ) {
+
+        val now = Instant.now()
+        val refreshTimestamp = now.epochSecond * 1_000_000L + now.nano / 1_000L
+        val waitQueueKey = "$queueType$WAIT_QUEUE"
+
+        // 대기열 내에서 timestamp가 갱신됨
+        val refresh = reactiveRedisTemplate.opsForZSet()
+            .add(waitQueueKey, userId, refreshTimestamp.toDouble())
+            .awaitSingle()
+
+        if (refresh == true) {
+            kafkaProducerService.sendMessage(queueType)
+        }
+    }
 
     suspend fun allowUser(
         queueType: String,
