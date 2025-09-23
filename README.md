@@ -20,7 +20,7 @@ Backend : SpringBoot, Kotlin, Coroutine
 
 Frontend : React.js, JavaScript
 
-Database : MySQL ~~( R2DBC )~~, Redis
+Database : ~~MySQL ( R2DBC )~~, Redis
 
 Infra : Kafka, Docker<br><br>
 
