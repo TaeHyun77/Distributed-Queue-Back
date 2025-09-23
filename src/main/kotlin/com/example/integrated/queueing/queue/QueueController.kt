@@ -3,6 +3,7 @@ package com.example.integrated.queueing.queue
 import com.example.integrated.util.Loggable
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -24,24 +25,22 @@ class QueueController (
     @PostMapping("/register/{userId}/{queueType}")
     suspend fun registerUser(
         @PathVariable("userId") userId: String,
-        @PathVariable("queueType") queueType: String
-    ): String {
+        @PathVariable("queueType") queueType: String,
+        request: ServerHttpRequest
+    ): RegisterResult {
 
         log.info { "server name: $serverName" }
 
         val now = Instant.now()
-
         // 초 값 → 마이크로초 , 나노초 값 → 마이크로초
         val enterTimestamp = now.epochSecond * 1_000_000L + now.nano / 1_000L
 
-        /*val idempotencyKey: String = request.headers["Idempotency-key"]?.firstOrNull()
-            ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)*/
+        val idempotencyKey: String = request.headers["idempotencyKey"]?.firstOrNull()
+            ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)
 
-        log.info { "등록 사용자 정보 , userId: $userId, queueType: $queueType enterTimestamp: $enterTimestamp" }
+        log.info { "등록 사용자 정보 , userId: $userId, queueType: $queueType enterTimestamp: $enterTimestamp idempotencyKey: $idempotencyKey" }
 
-        val result = queueService.registerUserToWaitQueue(userId, queueType, enterTimestamp)
-
-        return result
+        return queueService.registerUserToWaitQueue(userId, queueType, enterTimestamp, idempotencyKey)
     }
 
     // 쿠키에 토큰 전달
