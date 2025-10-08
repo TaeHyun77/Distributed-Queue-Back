@@ -18,7 +18,11 @@ class SecurityConfig {
         return http
             .cors { it.configurationSource(corsConfigurationSource()) }
             .csrf { it.disable() }
-            .authorizeExchange { exchanges -> exchanges.anyExchange().permitAll() }
+            .authorizeExchange { exchanges ->
+                exchanges
+                    .pathMatchers("/queue/**").permitAll()
+                    .anyExchange().authenticated()
+            }
             .build()
     }
 
