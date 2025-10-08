@@ -29,6 +29,7 @@ class SseEventService(
         queueType: String
     ): Flow<ServerSentEvent<String>> {
 
+        // sink.asFlux()로 발행 통로를 Reactor 스트림으로 만든 후, asFlow()로 그 스트림을 Kotlin 코루틴에서 처리하기 위한 형태로 변환하는 것
         return sink.asFlux().asFlow()
             .flatMapConcat {
                 flow {
