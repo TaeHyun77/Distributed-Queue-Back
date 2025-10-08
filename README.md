@@ -63,6 +63,8 @@ Infra : Kafka, Docker<br><br>
 - Redis Mutex Lock을 적용해 동일 좌석 예약 시 단일 요청만 처리되도록 하여 동시성 문제를 방지했습니다.
 - 멱등성을 적용해 짧은 시간에 반복된 동일 요청( 따닥 이슈 )을 방지하고, 이미 처리된 요청은 거절하며 기존 결과를 반환하도록 했습니다.
 
+- 예약 프로젝트 리포지토리 : https://github.com/TaeHyun77/integrated-reserve-back.git
+
 <br><br>
 
 ### **분산 환경에서 확인해야 할 포인트**
