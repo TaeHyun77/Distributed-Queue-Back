@@ -7,6 +7,7 @@
 이 리포지토리에서는 개선된 대기열 시스템에 대한 내용을 담고 있습니다.<br><br>
 
 **구현 과정**
+
 https://velog.io/@ayeah77/series/%EB%8C%80%EA%B8%B0%EC%97%B4-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%9C%EC%84%A0<br><br>
 
 **기존 대기열 시스템에서의 개선점**
