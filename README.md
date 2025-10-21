@@ -65,7 +65,8 @@ Infra : Kafka, Docker<br><br>
 
 [ 분산 서버 ]
 
-<img width="1141" height="556" alt="Image" src="https://github.com/user-attachments/assets/1ba96b07-01c6-428a-a8c5-f1eecd641516" /><br><br>
+<img width="796" height="441" alt="Image" src="https://github.com/user-attachments/assets/0925969e-fdca-4569-9bb6-b9d5be1ec45a" />
+<br><br>
 
 **분산 서버에서의 대기열 등록 동작 과정**
 
