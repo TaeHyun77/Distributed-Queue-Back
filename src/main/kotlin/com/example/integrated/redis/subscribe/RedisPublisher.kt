@@ -4,6 +4,7 @@ import com.example.integrated.util.Loggable
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.stereotype.Component
 
+/*
 @Component
 class RedisPublisher(
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
@@ -19,4 +20,4 @@ class RedisPublisher(
             .convertAndSend(channel, message)
             .subscribe()
     }
-}
+}*/

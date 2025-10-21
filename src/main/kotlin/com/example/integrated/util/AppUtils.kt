@@ -1,5 +1,6 @@
 package com.example.integrated.util
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -31,4 +32,8 @@ suspend fun logScope(name: String, scope: CoroutineScope? = null) {
         Thread: ${Thread.currentThread().name}
         """.trimIndent()
     )
+}
+
+inline fun <reified T> ObjectMapper.readValueFromJson(json: String): T {
+    return this.readValue(json, T::class.java)
 }

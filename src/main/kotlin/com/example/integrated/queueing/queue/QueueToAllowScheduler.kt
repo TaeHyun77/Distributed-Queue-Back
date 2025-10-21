@@ -47,6 +47,7 @@ class QueueToAllowScheduler(
                 try {
                     queueTypes.forEach { queueType ->
                         val count = queueService.allowUser(queueType, maxAllowedUsers)
+
                         log.info { "$queueType 허용열로 이동한 사용자 : $count" }
                     }
                 } catch (e: Exception) {
