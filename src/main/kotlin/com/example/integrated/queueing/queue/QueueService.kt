@@ -20,6 +20,7 @@ import org.springframework.http.ResponseCookie
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.reactive.ServerHttpResponse
 import org.springframework.stereotype.Service
+import reactor.core.publisher.Mono
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -35,6 +36,9 @@ class QueueService (
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
 ): Loggable {
 
+    /**
+    * 대기열 등록
+    * */
     suspend fun registerUserToWaitQueue(
         userId: String,
         queueType: String,
@@ -42,52 +46,59 @@ class QueueService (
         idempotencyKey: String
     ): RegisterResult {
 
-        val now = Instant.now().epochSecond * 1_000_000L + Instant.now().nano / 1_000L
-
-        val isExists = reactiveRedisTemplate.opsForZSet()
-            .score(IDEMPOTENCE_TTL, idempotencyKey)
-            .awaitSingleOrNull()
-
-        // 이미 존재하고 TTL이 만료되지 않았다면 → 중복 요청 처리
-        if (isExists != null && now <= isExists) {
-            log.info { "중복된 요청입니다." }
-            return RegisterResult.ALREADY_EXISTS
+        // 멱등성 관리 로직
+        if (!checkIdempotency(idempotencyKey)) {
+            return RegisterResult.ALREADY_IDEMPOTENCY_EXISTS
         }
-
-        val idempotencyExpired = enterTimestamp + 600_000_000L // 현재 시간 + 10분 더한 값
-
-        reactiveRedisTemplate.opsForZSet()
-            .add(IDEMPOTENCE_TTL, idempotencyKey, idempotencyExpired.toDouble())
-            .awaitSingle()
-
-        log.info { "멱등키 값을 저장하였습니다." }
 
         // 두 비동기 작업이 모두 완료된 후에야 다음 로직이 실행됨
-        coroutineScope {
-
-            val (inWait, inAllow) = awaitAll(
-                async { searchUserRanking(userId, queueType, "wait") },
-                async { searchUserRanking(userId, queueType, "allow") }
+        // 대기큐 혹은 허용큐에서의 존재 여부 파악
+        val (isWait, isAllow) = coroutineScope { // awaitAll() : List<Long>을 반환
+            awaitAll(
+                async {searchUserRanking(userId, queueType, "wait")},
+                async {searchUserRanking(userId, queueType, "allow")}
             )
-
-            if (inWait != -1L || inAllow != -1L) {
-                throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER)
-            }
         }
 
+        if (isWait != -1L || isAllow != -1L) {
+            throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER_IN_QUEUE)
+        }
+
+        // 대기열에 등록
         val wasAdded = reactiveRedisTemplate.opsForZSet()
             .add(queueType + WAIT_QUEUE, userId, enterTimestamp.toDouble())
-            .awaitSingle() // true : add 성공 , false : add 실패 -> 이미 존재
+            .awaitSingle() // true : add 성공 , false : 이미 존재하기에 실패
 
-        if (!wasAdded) {
-            throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER)
-        } else {
+        // 등록 성공 시 카프카로 이벤트 전달
+        if (wasAdded) {
             log.info { "대기열에 성공적으로 등록 완료 !" }
-            // 대기열에 성공적으로 추가 되었다면 카프카 메세지 전송
+
             kafkaProducerService.sendMessage(queueType)
+        } else {
+            throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.FAIL_TO_REGISTER_USER_IN_QUEUE)
         }
 
-        return RegisterResult.REGISTERED
+        return RegisterResult.QUEUE_REGISTERED
+    }
+
+    /**
+    * 멱등 로직 확인
+    * */
+    suspend fun checkIdempotency(idempotencyKey: String): Boolean {
+
+        // true : 존재하지 않음 , false : 이미 존재함
+        val isOk = reactiveRedisTemplate.opsForValue()
+            .setIfAbsent(idempotencyKey, "1", Duration.ofMinutes(10))
+            .awaitSingle()
+
+        // 존재하지 않는 경우
+        return if (isOk) {
+            log.info { "멱등키 저장 완료 - idempotencyKey: $idempotencyKey" }
+            true
+        } else {
+            log.info { "중복 요청 감지 !! - idempotencyKey: $idempotencyKey" }
+            false
+        }
     }
 
     /**
@@ -103,10 +114,13 @@ class QueueService (
         val keyType = if (queueCategory == "wait") WAIT_QUEUE else ALLOW_QUEUE
         val queueKey = queueType + keyType
 
+        // rank 값이 존재 : Long 값 반환 , rank 값이 존재하지 않음 : null 반환
+        // awaitSingle()로 했을 때 rank 값이 존재하지 않으면 예외를 발생시키기에 awaitSingleOrNull()을 사용
         val redisRank = reactiveRedisTemplate.opsForZSet()
             .rank(queueKey, userId)
-            .awaitSingleOrNull() // rank 값이 존재 : Long 값 반환 , rank 값이 존재하지 않음 : null 반환
+            .awaitSingleOrNull()
 
+        // rank의 반환 값은 값이 존재한다면 0부터 반환인데 1부터 하기 위해 +1 해주고, 존재하지 않는다면 -1을 반환하도록 함
         val rank = redisRank?.takeIf { it >= 0 }?.plus(1) ?: -1
 
         if (rank == -1L) {
@@ -118,6 +132,9 @@ class QueueService (
         return rank
     }
 
+    /**
+     * 대기열에서 사용자 삭제
+     * */
     suspend fun cancelUser(
         userId: String,
         queueType: String,
@@ -130,14 +147,15 @@ class QueueService (
         }
     }
 
-    /*
-    * 문제 상황 발생 가능성
+    /**
+    *  문제 상황 발생 가능성
     *
-    * 승격 로직이 wait에서 사용자를 삭제하고 allow로 옮기기 전에 취소 로직이 allow에서 삭제를 진행하는 경우
-    * ⇒ 이러한 타이밍으로 인한 경쟁 상태를 별도로 관리하여 문제를 해결
+    *  승격 로직이 wait에서 사용자를 삭제했을 때, 취소 요청이 오는 경우 대기열에는 사용자가 없기에 문제가 발생할 수 있음
+    *  이러한 타이밍으로 인한 경쟁 상태를 별도로 관리하여 문제를 해결
     * */
     suspend fun cancelWaitOrAllow(
-        userId: String, queueType: String
+        userId: String,
+        queueType: String
     ): Boolean {
         val waitQueueKey = "$queueType$WAIT_QUEUE"
 
@@ -146,8 +164,9 @@ class QueueService (
             .awaitSingle() // 0 : 해당 사용자 없음 , 1 : 해당 사용자 삭제
 
         if (removedResult == 1L) {
+            log.info { "${userId}님 대기열에서 삭제 완료" }
+
             kafkaProducerService.sendMessage(queueType)
-            log.info { "대기열 삭제 완료" }
             return true
         }
 
@@ -163,6 +182,9 @@ class QueueService (
         return removedFromAllow
     }
 
+    /**
+     * 허용열에서 사용자 삭제
+    * */
     suspend fun cancelAllowUser(
         userId: String,
         queueType: String
@@ -178,14 +200,20 @@ class QueueService (
         return isRemoved
     }
 
-    // TTL 키 삭제 로직
+    /**
+     * TTL 키 삭제 로직
+     */
     private suspend fun removeTtlKey(userId: String) {
 
         val ttlRemovedCount = reactiveRedisTemplate.opsForZSet()
             .remove(TOKEN_TTL_INFO, userId)
             .awaitSingle()
 
-        if (ttlRemovedCount == 0L) log.warn { "$userId TTL 키가 존재하지 않아 삭제되지 않았습니다." }
+        if (ttlRemovedCount == 0L) {
+            log.warn { "$userId TTL 키가 존재하지 않아 삭제되지 않았습니다." }
+        } else {
+            log.info { "$userId TTL 키 성공적으로 삭제 완료" }
+        }
     }
 
     fun generateAccessToken(
@@ -244,7 +272,7 @@ class QueueService (
         return generateAccessToken(userId, queueType) == token && now <= expireTime
     }
 
-    suspend fun refreshWaitQueue(
+    /*suspend fun refreshWaitQueue(
         userId: String,
         queueType: String
     ) {
@@ -261,12 +289,12 @@ class QueueService (
         if (refresh == true) {
             kafkaProducerService.sendMessage(queueType)
         }
-    }
+    }*/
 
     suspend fun allowUser(
         queueType: String,
         count: Long
-    ): Long {
+    ): Int {
         val waitQueueKey = "$queueType$WAIT_QUEUE"
         val allowQueueKey = "$queueType$ALLOW_QUEUE"
 
@@ -274,15 +302,13 @@ class QueueService (
             .opsForZSet()
             .popMin(waitQueueKey, count)
             .collectList()
-            .awaitSingle() // 값이 있으면 List<T> 반환, 값이 없어도 빈 List 반환
+            .awaitSingle() // 값이 있으면 List<T> 반환, 값이 없으면 빈 List 반환
 
         if (poppedUsers.isEmpty()) return 0
 
         val now = Instant.now()
         val timestamp = now.epochSecond * 1_000_000_000L + now.nano
         val expireAt = now.plus(Duration.ofMinutes(10)).epochSecond.toDouble()
-
-        var movedCount = 0L
 
         poppedUsers.forEach { user ->
             val userId = user.value.toString()
@@ -298,9 +324,8 @@ class QueueService (
                 .awaitSingle()
 
             kafkaProducerService.sendMessage(queueType)
-            movedCount++
         }
 
-        return movedCount
+        return poppedUsers.size
     }
 }

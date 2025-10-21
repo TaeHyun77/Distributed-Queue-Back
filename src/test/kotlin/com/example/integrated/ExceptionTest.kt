@@ -1,9 +1,10 @@
 package com.example.integrated
 
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.supervisorScope
 import org.junit.jupiter.api.Test
 
 class ExceptionTest {
@@ -13,36 +14,37 @@ class ExceptionTest {
 
         runBlocking {
 
-            val supervisorJob = SupervisorJob()
+            println("1번 : ${coroutineContext[Job]}")
 
             println("coroutine01 : start")
 
-            launch(supervisorJob) {
+            launch {
                 println("coroutine02 : start")
                 delay(500)
                 println("coroutine02 : end")
             }
 
-            launch(supervisorJob) {
+            launch {
                 println("coroutine03 : start")
                 delay(500)
                 println("coroutine03 : end")
             }
 
-            launch(supervisorJob) {
-                println("coroutine04 : start")
-
+            supervisorScope {
                 launch {
-                    println("coroutine05 : start")
-                    delay(500)
-                    println("coroutine05 : end")
-                }
+                    println("coroutine04 : start")
 
-                delay(200)
-                throw RuntimeException("coroutine04 exception")
+                    launch {
+                        println("coroutine05 : start")
+                        delay(500)
+                        println("coroutine05 : end")
+                    }
+
+                    delay(200)
+                    throw RuntimeException("coroutine04 exception")
+                }
             }
 
-            delay(500)
             println("coroutine01 : end")
         }
     }

@@ -12,6 +12,7 @@ import org.springframework.data.redis.serializer.RedisSerializationContext
 import org.springframework.data.redis.serializer.StringRedisSerializer
 import org.springframework.stereotype.Service
 
+/*
 @Service
 class RedisMessageListenerService(
     private val redisMessageListenerContainer: ReactiveRedisMessageListenerContainer
@@ -32,6 +33,8 @@ class RedisMessageListenerService(
         messageListenerContainer
             .receive(listOf(channel), serializer, serializer)
             .flatMap {
+
+                // queueType 값
                 val event = it.message
 
                 mono {
@@ -47,4 +50,4 @@ class RedisMessageListenerService(
     private fun channelAndValueSerializer(): RedisSerializationContext.SerializationPair<String> {
         return RedisSerializationContext.SerializationPair.fromSerializer(StringRedisSerializer())
     }
-}
+}*/
