@@ -46,9 +46,11 @@ Backend : SpringBoot, Kotlin, Coroutine
 
 Frontend : React.js, JavaScript
 
-Database : ~~MySQL ( R2DBC )~~, Redis
+Database : Redis
 
 Infra : Kafka, Docker<br><br>
+
+Etc : SSE
 
 ### 아키텍처
 
