@@ -48,9 +48,9 @@ Frontend : React.js, JavaScript
 
 Database : Redis
 
-Infra : Kafka, Docker<br><br>
+Infra : Kafka, Docker
 
-Etc : SSE
+Etc : SSE<br><br>
 
 ### 아키텍처
 
