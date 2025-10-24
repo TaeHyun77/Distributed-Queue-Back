@@ -122,6 +122,9 @@ kafka를 pub/sub 기능으로 활용하기 위해 각 서버의 컨슈머가 서
       <br><br>
       
 ### redis master/slave 구조 구현 및 트러블 슈팅
+---
+<br><br>
+
 
 ### Nginx의 커넥션 관리 및 튜닝
 ---
