@@ -118,5 +118,105 @@ services:
     networks:
       - integrated-net
 
+  redis-master:
+    image: "bitnami/redis:latest"
+    hostname: redis-master
+    container_name: queue-redis-master
+    environment:
+      - REDIS_REPLICATION_MODE=master
+      - ALLOW_EMPTY_PASSWORD=yes # 비밀번호 없이
+    ports:
+      - "6379:6379"
+    networks:
+      - integrated-net
+
+  redis-slave01:
+    image: "bitnami/redis:latest"
+    hostname: redis-slave01
+    container_name: queue-redis-slave01
+    environment:
+      - REDIS_REPLICATION_MODE=slave
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_MASTER_HOST=redis-master
+    ports:
+      - "6479:6379"
+    depends_on:
+      - redis-master
+    networks:
+      - integrated-net
+
+  redis-slave02:
+    image: "bitnami/redis:latest"
+    hostname: redis-slave02
+    container_name: queue-redis-slave02
+    environment:
+      - REDIS_REPLICATION_MODE=slave
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_MASTER_HOST=redis-master
+    ports:
+      - "6579:6379"
+    depends_on:
+      - redis-master
+      - redis-slave01
+    networks:
+      - integrated-net
+
+  redis-sentinel01:
+    image: 'bitnami/redis-sentinel:latest'
+    hostname: redis-sentinel01
+    container_name: queue-redis-sentinel01
+    environment:
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=3000
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_MASTER_PORT_NUMBER=6379
+      - REDIS_MASTER_SET=toMaster
+      - REDIS_SENTINEL_QUORUM=2 # 과반수
+    depends_on:
+      - redis-master
+      - redis-slave01
+      - redis-slave02
+    ports:
+      - '26379:26379'
+    networks:
+      - integrated-net
+
+  redis-sentinel02:
+    image: 'bitnami/redis-sentinel:latest'
+    hostname: redis-sentinel02
+    container_name: queue-redis-sentinel02
+    environment:
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=3000
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_MASTER_PORT_NUMBER=6379
+      - REDIS_MASTER_SET=toMaster
+      - REDIS_SENTINEL_QUORUM=2
+    depends_on:
+      - redis-master
+      - redis-slave01
+      - redis-slave02
+    ports:
+      - '26380:26379'
+    networks:
+      - integrated-net
+
+  redis-sentinel03:
+    image: 'bitnami/redis-sentinel:latest'
+    hostname: redis-sentinel03
+    container_name: queue-redis-sentinel03
+    environment:
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=3000
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_MASTER_PORT_NUMBER=6379
+      - REDIS_MASTER_SET=toMaster
+      - REDIS_SENTINEL_QUORUM=2
+    depends_on:
+      - redis-master
+      - redis-slave01
+      - redis-slave02
+    ports:
+      - '26381:26379'
+    networks:
+      - integrated-net
+
 networks:
   integrated-net:
