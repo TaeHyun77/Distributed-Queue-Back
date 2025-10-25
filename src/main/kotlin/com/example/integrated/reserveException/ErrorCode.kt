@@ -15,5 +15,7 @@ enum class ErrorCode (
 
     FAIL_TO_REGISTER_USER_IN_QUEUE("FAIL_TO_REGISTER_QUEUE", "대기열 등록에 실패하였습니다."),
 
-    NOT_EXIST_TTL_INFO("NOT_EXIST_TTL_INFO", "TTL 값이 존재하지 않습니다.")
+    NOT_EXIST_TTL_INFO("NOT_EXIST_TTL_INFO", "TTL 값이 존재하지 않습니다."),
+
+    REDIS_FAILED_TO_ACQUIRED_LOCK("REDIS_FAILED_TO_ACQUIRED_LOCK", "Lock 획득 실패")
 }
