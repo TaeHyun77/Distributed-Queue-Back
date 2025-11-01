@@ -19,7 +19,7 @@ class KafkaProducerService (
 
     fun sendMessage(queueType: String) {
         try {
-            val message = KafkaMessageDto(queueType)
+            val message = QueueBroadcastDto(queueType)
             val json = objectMapper.writeValueAsString(message)
 
             kafkaTemplate.send(queueEventTopicName, queueType, json).whenComplete { _, ex ->

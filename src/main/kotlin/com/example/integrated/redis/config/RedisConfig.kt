@@ -4,6 +4,8 @@ import com.example.integrated.util.Loggable
 import org.redisson.Redisson
 import org.redisson.api.RedissonClient
 import org.redisson.config.Config
+import org.redisson.config.ReadMode
+import org.redisson.config.SubscriptionMode
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -51,20 +53,22 @@ class RedisConfig(
         return ReactiveRedisTemplate(lettuceConnectionFactory(), context)
     }
 
-//    @Bean
-//    fun redissonClient(): RedissonClient {
-//        val config = Config()
-//
-//        // Sentinel 모드로 설정
-//        config.useSentinelServers()
-//            .setMasterName(master)
-//            .addSentinelAddress(*sentinelNodes.split(",").map { "redis://${it.trim()}" }.toTypedArray())
-//            .setDatabase(0)
-//            .setConnectTimeout(5000)
-//            .setTimeout(10000)
-//
-//        return Redisson.create(config)
-//    }
+    @Bean
+    fun redissonClient(): RedissonClient {
+        val config = Config()
+
+        // Sentinel 모드로 설정
+        config.useSentinelServers()
+            .setMasterName(master)
+            .addSentinelAddress(*sentinelNodes.split(",").map { "redis://${it.trim()}" }.toTypedArray())
+            .setDatabase(0)
+            .setConnectTimeout(5000)
+            .setReadMode(ReadMode.MASTER)
+            .setSubscriptionMode(SubscriptionMode.MASTER)
+            .setTimeout(10000)
+
+        return Redisson.create(config)
+    }
 
 //    // 레디스의 Pub/Sub 기능을 위한 리스너 컨테이너
 //    @Bean

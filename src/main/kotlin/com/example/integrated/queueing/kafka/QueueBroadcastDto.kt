@@ -1,5 +1,5 @@
 package com.example.integrated.queueing.kafka
 
-data class KafkaMessageDto (
+data class QueueBroadcastDto (
     val queueType: String
 )
