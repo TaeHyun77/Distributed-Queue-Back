@@ -1,5 +1,6 @@
 package com.example.integrated.queueing.queue
 
+import com.example.integrated.redis.RedisLockUtil
 import com.example.integrated.util.Loggable
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
@@ -17,8 +18,9 @@ class QueueToAllowScheduler(
     private val queueService: QueueService,
 
     @Value("\${move.to.allow.interval}")
+    private var moveToAllowInterval: Long,
 
-    private var moveToAllowInterval: Long
+    private val redisLockUtil: RedisLockUtil
 ): Loggable {
 
     /*
@@ -48,14 +50,20 @@ class QueueToAllowScheduler(
         tickerScope.launch {
             tickerFlow(moveToAllowInterval, 30_000)
                 .collect {
-                    queueTypes.forEach { queueType ->
-                        try {
-                            val count = queueService.allowUser(queueType, maxAllowedUsers)
+                    val result = redisLockUtil.acquireLockAndRun("scheduling_key") {
+                        queueTypes.forEach { queueType ->
+                            try {
+                                val count = queueService.allowUser(queueType, maxAllowedUsers)
 
-                            log.info { "$queueType 허용열로 이동한 사용자 : $count" }
-                        } catch (e: Exception) {
-                            log.error(e) { "스케줄링 중 예외 발생 - ${e.message}" }
+                                log.info { "$queueType 허용열로 이동한 사용자 : $count" }
+                            } catch (e: Exception) {
+                                log.error(e) { "스케줄링 중 예외 발생 - ${e.message}" }
+                            }
                         }
+                    }
+
+                    if (result == null) {
+                        log.debug { "다른 인스턴스가 스케줄링을 실행 중입니다." }
                     }
                 }
         }
