@@ -2,7 +2,6 @@ package com.example.integrated.queueing.kafka
 
 import com.example.integrated.queueing.event.QueueEventPayload
 import com.example.integrated.queueing.event.SseEventService
-import com.example.integrated.queueing.queue.QueueService
 import com.example.integrated.util.Loggable
 import com.example.integrated.util.readValueFromJson
 import com.fasterxml.jackson.databind.ObjectMapper

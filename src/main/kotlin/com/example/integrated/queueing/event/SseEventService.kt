@@ -11,7 +11,6 @@ import kotlinx.coroutines.reactive.asFlow
 import org.springframework.http.codec.ServerSentEvent
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Sinks
-import kotlin.compareTo
 
 @Service
 class SseEventService(
