@@ -17,5 +17,7 @@ enum class ErrorCode (
 
     NOT_EXIST_TTL_INFO("NOT_EXIST_TTL_INFO", "TTL 값이 존재하지 않습니다."),
 
-    REDIS_FAILED_TO_ACQUIRED_LOCK("REDIS_FAILED_TO_ACQUIRED_LOCK", "Lock 획득 실패")
+    INTERNAL_ERROR("INTERNAL_ERROR", "대기열 예외 발생"),
+
+    REDIS_OPERATION_FAILED("REDIS_OPERATION_FAILED", "Redis 작업 중 실패")
 }
