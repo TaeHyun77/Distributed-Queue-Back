@@ -73,7 +73,7 @@ kafka를 pub/sub 기능으로 활용하기 위해 각 서버의 컨슈머가 서
 
 - 예약 프로젝트 리포지토리 : https://github.com/TaeHyun77/integrated-reserve-back.git<br><br>
 
-### 요청 흐름
+### 자세한 요청 흐름
 
 ---
 
