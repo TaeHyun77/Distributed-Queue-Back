@@ -15,9 +15,9 @@ enum class ErrorCode (
 
     FAIL_TO_REGISTER_USER_IN_QUEUE("FAIL_TO_REGISTER_QUEUE", "대기열 등록에 실패하였습니다."),
 
-    NOT_EXIST_TTL_INFO("NOT_EXIST_TTL_INFO", "TTL 값이 존재하지 않습니다."),
-
     INTERNAL_ERROR("INTERNAL_ERROR", "대기열 예외 발생"),
 
-    REDIS_OPERATION_FAILED("REDIS_OPERATION_FAILED", "Redis 작업 중 실패")
+    REDIS_OPERATION_FAILED("REDIS_OPERATION_FAILED", "Redis 작업 중 실패"),
+
+    FAIL_TO_GENERATE_TOKEN("FAIL_TO_GENERATE_TOKEN", "토큰 생성 중 에러 발생")
 }
