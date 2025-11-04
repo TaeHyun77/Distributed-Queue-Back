@@ -1,12 +1,12 @@
 package com.example.integrated.queueing.queue
 
+import com.example.integrated.queueing.idempotency.Idempotency
+import com.example.integrated.queueing.idempotency.IdempotencyRepository
 import com.example.integrated.util.Loggable
 import com.example.integrated.queueing.kafka.KafkaProducerService
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
-import com.example.integrated.util.ACCESS_TOKEN
 import com.example.integrated.util.ALLOW_QUEUE
-import com.example.integrated.util.IDEMPOTENCE_TTL
 import com.example.integrated.util.TOKEN_TTL_INFO
 import com.example.integrated.util.WAIT_QUEUE
 import kotlinx.coroutines.async
@@ -14,26 +14,33 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseCookie
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.reactive.ServerHttpResponse
 import org.springframework.stereotype.Service
-import reactor.core.publisher.Mono
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.time.Duration
 import java.time.Instant
+import java.time.LocalDateTime
+import java.util.Base64
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.component1
 import kotlin.collections.component2
 
 @Service
 class QueueService (
+    @Value("\${queue.validation.key}")
+    private val validationKey: String,
+
     private val kafkaProducerService: KafkaProducerService,
-    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
+    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
+    private val idempotencyRepository: IdempotencyRepository
 ): Loggable {
 
     /**
@@ -48,7 +55,7 @@ class QueueService (
 
         try {
             // 멱등성 관리 로직
-            if (!checkIdempotency(idempotencyKey)) {
+            if (checkIdempotency(userId, queueType, idempotencyKey)) {
                 return RegisterResult.ALREADY_IDEMPOTENCY_EXISTS
             }
 
@@ -92,20 +99,27 @@ class QueueService (
     /**
     * 멱등 로직 확인
     * */
-    suspend fun checkIdempotency(idempotencyKey: String): Boolean {
+    suspend fun checkIdempotency(userId: String, queueType: String, idempotencyKey: String): Boolean {
 
-        // true : 존재하지 않음 , false : 이미 존재함
-        val isOk = reactiveRedisTemplate.opsForValue()
-            .setIfAbsent(idempotencyKey, "1", Duration.ofMinutes(10))
-            .awaitSingle()
+        val isExistIdempotency = idempotencyRepository.findByIdempotencyKey(idempotencyKey)
 
-        // 존재하지 않는 경우
-        return if (isOk) {
-            log.info { "멱등키 저장 완료 - idempotencyKey: $idempotencyKey" }
-            true
-        } else {
-            log.info { "중복 요청 감지 !! - idempotencyKey: $idempotencyKey" }
+        return if (isExistIdempotency == null) {
+            val expireTime = LocalDateTime.now().plusMinutes(5)
+
+            val idempotency = Idempotency(
+                null,
+                idempotencyKey,
+                userId,
+                queueType,
+                expireTime
+            )
+
+            idempotencyRepository.save(idempotency)
             false
+        } else {
+            val now = LocalDateTime.now()
+
+            now.isBefore(isExistIdempotency.expiresAt)
         }
     }
 
@@ -209,7 +223,7 @@ class QueueService (
             .remove(allowQueueKey, userId)
             .awaitSingle() == 1L
 
-        if (isRemoved) removeTtlKey(userId)
+        if (isRemoved) removeTtlKey(queueType, userId)
 
         return isRemoved
     }
@@ -221,61 +235,24 @@ class QueueService (
         userId: String,
         queueType: String
     ): String {
-
-        return try {
-            val digest = MessageDigest.getInstance("SHA-256")
-            val raw = queueType + ACCESS_TOKEN + userId
-            val hash = digest.digest(raw.toByteArray(StandardCharsets.UTF_8))
-
-            buildString {
-                hash.forEach { append(String.format("%02x", it)) }
-            }
-        } catch (e: NoSuchAlgorithmException) {
-            log.error(e) {" 토큰 생성 중 에러 발생 "}
-
-            throw RuntimeException("Token 생성 실패", e)
-        }
-    }
-
-    /*
-    * 타겟 페이지에 접속하면 쿠키에 저장된 토큰과 비교하는 로직
-    * */
-    suspend fun isAccessTokenValid(
-        userId: String,
-        queueType: String,
-        token: String
-    ): Boolean {
-
-        // 해당 사용자의 TTL 값 조회
-        // true : 사용자의 TTL 값 반환 , null : 값이 존재하지 않음
-        val ttlInfo = reactiveRedisTemplate.opsForZSet()
-            .score(TOKEN_TTL_INFO, userId)
-            .awaitSingleOrNull() ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_TTL_INFO);
-
-        val expireTime = ttlInfo.toLong()
-        val now = Instant.now().epochSecond
-
-        return generateAccessToken(userId, queueType) == token && now <= expireTime
-    }
-
-    /*
-    * TTL 키 삭제 로직
-    * */
-    private suspend fun removeTtlKey(userId: String) {
         try {
-            val ttlRemovedCount = reactiveRedisTemplate.opsForZSet()
-                .remove(TOKEN_TTL_INFO, userId)
-                .awaitSingle()
+            val mac = Mac.getInstance("HmacSHA256")
+            val keySpec = SecretKeySpec(validationKey.toByteArray(StandardCharsets.UTF_8), "HmacSHA256")
+            mac.init(keySpec)
 
-            if (ttlRemovedCount == 0L) {
-                log.warn { "$userId TTL 키가 존재하지 않아 삭제되지 않았습니다." }
-            } else {
-                log.info { "$userId TTL 키 성공적으로 삭제 완료" }
-            }
+            val raw = "$queueType:$userId"
+            val digest = mac.doFinal(raw.toByteArray(StandardCharsets.UTF_8))
+
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+
+        } catch (e: NoSuchAlgorithmException) {
+            log.error(e) { "HmacSHA256 알고리즘을 찾을 수 없습니다." }
+
+            throw IllegalStateException("Token 생성 실패", e)
         } catch (e: Exception) {
-            log.error(e) { "TTL 키 삭제 실패" }
+            log.error(e) { "토큰 생성 중 에러 발생." }
 
-            throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.REDIS_OPERATION_FAILED)
+            throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.FAIL_TO_GENERATE_TOKEN)
         }
     }
 
@@ -289,17 +266,74 @@ class QueueService (
     ): ResponseEntity<String> {
 
         val encodedName = URLEncoder.encode(userId, StandardCharsets.UTF_8)
-        val token = generateAccessToken(userId, queueType)
         val cookieName = "reserve_user-access-cookie_$encodedName"
+
+        val token = generateAccessToken(userId, queueType)
 
         val responseCookie = ResponseCookie.from(cookieName, token)
             .path("/")
-            .maxAge(Duration.ofSeconds(300))
+            .maxAge(Duration.ofSeconds(600))
             .build()
 
         response.addCookie(responseCookie)
 
         return ResponseEntity.ok("쿠키 발급 완료")
+    }
+
+    /*
+    * 타겟 페이지에 접속하면 쿠키에 저장된 토큰과 비교하는 로직
+    * */
+    suspend fun isAccessTokenValid(
+        userId: String,
+        queueType: String,
+        token: String
+    ): Boolean {
+
+        val ttlInfo = getTtlInfo(userId) ?: return false
+
+        val expireTime = ttlInfo.toLong()
+        val now = Instant.now().epochSecond
+
+        return generateAccessToken(userId, queueType) == token && now <= expireTime
+    }
+
+    /*
+    * TTL 키 삭제 로직
+    * */
+    private suspend fun removeTtlKey(queueType: String, userId: String) {
+        try {
+            val ttlInfo = getTtlInfo(userId)
+
+            if (ttlInfo == null) {
+                log.warn { "$queueType:$userId TTL 키가 존재하지 않아 삭제되지 않았습니다." }
+                return
+            }
+
+            val isRemoved = reactiveRedisTemplate.opsForZSet()
+                .remove(TOKEN_TTL_INFO, userId)
+                .awaitSingle()
+
+            if (isRemoved == 1L) {
+                log.info { "$queueType:$userId TTL 키 성공적으로 삭제 완료" }
+            }
+        } catch (e: Exception) {
+            log.error(e) { "TTL 키 삭제 실패" }
+
+            throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.REDIS_OPERATION_FAILED)
+        }
+    }
+
+    private suspend fun getTtlInfo(
+        userId: String
+    ): Double? {
+        return try {
+            reactiveRedisTemplate.opsForZSet()
+                .score(TOKEN_TTL_INFO, userId)
+                .awaitSingleOrNull()
+        } catch (e: Exception) {
+            log.error(e) { "TTL 정보 조회 실패: $userId" }
+            null
+        }
     }
 
     suspend fun allowUser(
