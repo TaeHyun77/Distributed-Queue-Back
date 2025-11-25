@@ -55,21 +55,27 @@ Etc : SSE<br><br>
 
 [ 분산 서버 ]
 
-<img width="796" height="441" alt="Image" src="https://github.com/user-attachments/assets/d6dc6f1b-8ee1-4104-88d7-fedd5a3e85e8" />
-<br><br>
+![image.png](attachment:e8afa841-b95d-48db-9f80-745f6fd6b91f:image.png)<br><br>
 
 **분산 서버에서의 대기열 등록 동작 과정**
 
-kafka를 pub/sub 기능으로 활용하기 위해 각 서버의 컨슈머가 서로 다른 consumer group으로 되도록 설정하였습니다.<br>
+**기본 설정**
 
-이렇게 한다면 카프카로 발행된 하나의 이벤트를 모든 서버로 전달되게 할 수 있습니다.<br><br>
+대기열 프로젝트는 Docker를 사용한 분산 환경으로 이루어져 있습니다.
 
-- 모든 서버의 컨슈머는 서로 다른 consumer group으로 설정되어 있습니다.
-- 요청은 Nginx의 로드 밸런싱을 통해 여러 서버 중 하나로 분산되어 전달됩니다.
-1. 클라이언트가 대기열 등록 요청 시 서버로 참가한 대기열명과 userId 값을 전달하며, Redis Sorted Set에 들어온 시각을 score로 설정하여 정렬 저장합니다, 이때 SSE Sink 구독이 이루어집니다.
-2. 요청을 받은 서버는 Kafka의 대기열 토픽에 대기열 이름 값인 queueType을 발행( Produce )합니다.
-3. 모든 서버 인스턴스는 서로 다른 컨슈머 그룹으로 해당 토픽을 구독하고 있기 때문에, 이벤트는 모든 서버로 브로드캐스트됩니다.
-4. 각 서버는 Kafka 이벤트를 수신하면 SSE sink를 통해 SSE 이벤트 트리거를 발생시키고, 이를 감지한 서버는 sink를 구독 중인 클라이언트 중 전달된 queueType에 속한 사용자들의 상태 정보를 Redis에서 조회하여 최신 상태를 SSE를 통해 클라이언트로 전송합니다.<br><br>
+애플리케이션이 시작될 때 각 서버는 특정 redis 채널을 구독합니다.<br><br>
+
+**등록 흐름**
+
+1. 대기열 등록 요청이 들어오면, 클라이언트는 어떤 대기열인지를 나타내는 queueType, 사용자 ID인 userId, 멱등키인idempotencyKey를 서버로 전달합니다.
+    
+    이때 요청이 도착한 시각을 서버에서 timestamp로 기록하며, 클라이언트는 서버와 SSE 연결을 맺습니다.
+    
+2. 서버는 먼저 DB에서 idempotencyKey를 조회하여 존재하지 않는 경우에만 queueType, userId, timestamp 정보를 Kafka 로 publish 합니다.
+3. 여러 서버는 동일한 consumer group으로 구성되어 있기 때문에, Kafka 메시지는 한 서버에서만 consume 하며, 이때  Redis Sorted Set 자료구조로 이루어진 대기열에 userId를 key로, timestamp를 score로 저장하여, 자동으로 대기열 순서가 정렬되도록 합니다.
+4. 이후 메시지를 consume 한 서버는, 모든 서버가 구독하고 있던 Redis Pub/Sub 채널에 해당 queueType 값을 publish하여, 다른 모든 서버도 해당 대기열에서 변화가 발생했음을 실시간으로 감지하도록 합니다.
+5. 클라이언트는 SSE 연결을 통해 대기열의 상태가 갱신될 때마다 자신의 대기열 상태를 지속적으로 전달받습니다.
+6. Redis는 대기열과 참가열 두 영역으로 구성되며, 스케줄러가 주기적으로 대기열에서 일정 인원을 참가열로 이동시킵니다. 참가열로 이동된 사용자는 타깃 페이지에 접근할 수 있는 권한을 획득하여 해당 페이지로 이동하게 됩니다.<br><br>
 
 **예약 동작 과정**
 
