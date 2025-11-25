@@ -6,10 +6,9 @@
 
 이 리포지토리에서는 개선된 대기열 시스템에 대한 내용을 담고 있습니다.<br><br>
 
-개발 과정 블로그<br>
-https://velog.io/@ayeah77/series/%EB%8C%80%EA%B8%B0%EC%97%B4-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%9C%EC%84%A0
+**구현 과정**<br>
 
-<br>
+https://velog.io/@ayeah77/series/%EB%8C%80%EA%B8%B0%EC%97%B4-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%9C%EC%84%A0<br><br>
 
 **기존 대기열 시스템에서의 개선점**
 
@@ -21,10 +20,6 @@ https://velog.io/@ayeah77/series/%EB%8C%80%EA%B8%B0%EC%97%B4-%EC%8B%9C%EC%8A%A4%
 Redis Pub/Sub으로도 메시지 전달은 가능하지만, 메시지 손실에 대한 보장이나 내결함성 측면에서는 한계가 있습니다. 이에 따라 영속성과 신뢰성이 보장되는 Kafka로 전환하여 안정적인 데이터 일관성을 확보하였습니다.
 
 결과적으로 개선된 구조는 데이터베이스 의존성을 제거하여 단일 장애점을 제거하였으며, 비동기/분산 환경에 적합한 이벤트 전송 및 서버 간 동기화를 가능하게 하였습니다.<br><br>
-
-**구현 과정**
-
-https://velog.io/@ayeah77/series/%EB%8C%80%EA%B8%B0%EC%97%B4-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%9C%EC%84%A0<br><br>
 
 ### 기술 스택
 
