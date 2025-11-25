@@ -2,16 +2,15 @@ package com.example.integrated.queue.queue
 
 import com.example.integrated.queue.idempotency.Idempotency
 import com.example.integrated.queue.idempotency.IdempotencyRepository
-import com.example.integrated.util.Loggable
 import com.example.integrated.queue.kafka.KafkaProducerService
+import com.example.integrated.redis.pubsub.RedisPublisher
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
-import com.example.integrated.util.ALLOW_QUEUE
-import com.example.integrated.util.TOKEN_TTL_INFO
-import com.example.integrated.util.WAIT_QUEUE
+import com.example.integrated.util.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.beans.factory.annotation.Value
@@ -21,17 +20,16 @@ import org.springframework.http.ResponseCookie
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.reactive.ServerHttpResponse
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.NoSuchAlgorithmException
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
-import java.util.Base64
+import java.util.*
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
-import kotlin.collections.component1
-import kotlin.collections.component2
 
 @Service
 class QueueService (
@@ -40,12 +38,14 @@ class QueueService (
 
     private val kafkaProducerService: KafkaProducerService,
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
-    private val idempotencyRepository: IdempotencyRepository
+    private val idempotencyRepository: IdempotencyRepository,
+
+    private val redisPublisher: RedisPublisher
 ): Loggable {
 
     /**
-    * 대기열 등록
-    * */
+     * 대기열 등록
+     * */
     suspend fun registerUserToWaitQueue(
         userId: String,
         queueType: String,
@@ -54,72 +54,92 @@ class QueueService (
     ): RegisterResult {
 
         try {
-            // 멱등성 관리 로직
-            if (checkIdempotency(userId, queueType, idempotencyKey)) {
+            // 멱등성 관리 로직, 멱등키가 존재하고, 유효하다면 동일한 요청임을 나타탬
+            if (isIdempotent(userId, queueType, idempotencyKey)) {
                 return RegisterResult.ALREADY_IDEMPOTENCY_EXISTS
             }
 
-            // 두 비동기 작업이 모두 완료된 후에야 다음 로직이 실행됨
-            // 대기큐 혹은 허용큐에서의 존재 여부 파악
-            val (isWait, isAllow) = coroutineScope { // awaitAll() : List<Long>을 반환
-                awaitAll(
-                    async {searchUserRanking(userId, queueType, "wait")},
-                    async {searchUserRanking(userId, queueType, "allow")}
-                )
-            }
+            // redis 대기열 또는 참가열에 해당 사용자가 존재하는지 확인하는 로직
+            validateUserNotQueued(queueType, userId)
 
-            if (isWait != -1L || isAllow != -1L) {
-                throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER_IN_QUEUE)
-            }
-
-            // 대기열에 등록
-            val wasAdded = reactiveRedisTemplate.opsForZSet()
-                .add(queueType + WAIT_QUEUE, userId, enterTimestamp.toDouble())
-                .awaitSingle() // true : add 성공 , false : 이미 존재하기에 실패
-
-            // 등록 성공 시 카프카로 이벤트 전달
-            if (wasAdded) {
-                log.info { "대기열에 성공적으로 등록 완료 !" }
-
-                kafkaProducerService.sendMessage(queueType)
-            } else {
-                throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.FAIL_TO_REGISTER_USER_IN_QUEUE)
-            }
+            kafkaProducerService.sendMessage(queueType, userId, enterTimestamp.toDouble())
+            redisPublisher.publish(CHANNEL_NAME, queueType)
 
             return RegisterResult.QUEUE_REGISTERED
 
         } catch (e: ReserveException) {
+            log.error{ "대기열 등록 중 에러 발생 - ${e.message}" }
             throw e
         } catch (e: Exception) {
-            log.error(e) { "대기열 등록 중 에러 발생" }
-            throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.INTERNAL_ERROR)
+            log.error{ "대기열 등록 중 알 수 없는 에러 발생 - ${e.message}" }
+            throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.FAIL_TO_REGISTER_USER_IN_QUEUE)
         }
     }
 
     /**
-    * 멱등 로직 확인
+     * 멱등 로직 확인
+     * */
+    @Transactional
+    suspend fun isIdempotent(
+        userId: String,
+        queueType: String,
+        idempotencyKey: String
+    ): Boolean {
+
+        val now = LocalDateTime.now()
+        val existing = idempotencyRepository.findByIdempotencyKey(idempotencyKey)
+
+        // 키가 없음 → 생성하고 false
+        if (existing == null) {
+            saveNewIdempotency(idempotencyKey, userId, queueType, now)
+            return false
+        }
+
+        // 키가 존재하고, 유효하다면
+        if (now.isBefore(existing.expiresAt)) {
+            return true
+        }
+
+        // 키가 존재하지만 만료 → 삭제 후 재등록 → false
+        idempotencyRepository.delete(existing)
+        saveNewIdempotency(idempotencyKey, userId, queueType, now)
+        return false
+    }
+
+    private suspend fun saveNewIdempotency(
+        key: String,
+        userId: String,
+        queueType: String,
+        now: LocalDateTime
+    ) {
+        val idempotency = Idempotency(
+            id = null,
+            idempotencyKey = key,
+            userId = userId,
+            queueType = queueType,
+            expiresAt = now.plusMinutes(5)
+        )
+
+        idempotencyRepository.save(idempotency)
+    }
+
+    /*
+    * 대기큐 혹은 허용큐에서의 존재 여부 파악
+    * 두 비동기 작업이 모두 완료된 후에야 다음 로직이 실행됨
     * */
-    suspend fun checkIdempotency(userId: String, queueType: String, idempotencyKey: String): Boolean {
-
-        val isExistIdempotency = idempotencyRepository.findByIdempotencyKey(idempotencyKey)
-
-        return if (isExistIdempotency == null) {
-            val expireTime = LocalDateTime.now().plusMinutes(5)
-
-            val idempotency = Idempotency(
-                null,
-                idempotencyKey,
-                userId,
-                queueType,
-                expireTime
+    suspend fun validateUserNotQueued(
+        userId: String,
+        queueType: String
+    ) {
+        val (waitRank, allowRank) = coroutineScope {
+            awaitAll(
+                async { searchUserRanking(queueType, userId, "wait") },
+                async { searchUserRanking(queueType, userId, "allow") }
             )
+        }
 
-            idempotencyRepository.save(idempotency)
-            false
-        } else {
-            val now = LocalDateTime.now()
-
-            now.isBefore(isExistIdempotency.expiresAt)
+        if (waitRank >= 0 || allowRank >= 0) {
+            throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER_IN_QUEUE)
         }
     }
 
@@ -128,21 +148,18 @@ class QueueService (
      * 존재하지 않는다면 -1L 반환, 존재한다면 사용자의 순위 반환
      * */
     suspend fun searchUserRanking(
-        userId: String,
         queueType: String,
+        userId: String,
         queueCategory: String
     ): Long {
 
         val keyType = if (queueCategory == "wait") WAIT_QUEUE else ALLOW_QUEUE
-        val queueKey = queueType + keyType
+        val queueKey = queueType + keyType // "reserve_공연A:user-queue:allow" 이런 식
 
-        // rank 값이 존재 : Long 값 반환 , rank 값이 존재하지 않음 : null 반환
-        // awaitSingle()로 했을 때 rank 값이 존재하지 않으면 예외를 발생시키기에 awaitSingleOrNull()을 사용
         val redisRank = reactiveRedisTemplate.opsForZSet()
             .rank(queueKey, userId)
-            .awaitSingleOrNull()
+            .awaitFirstOrNull()
 
-        // rank의 반환 값은 값이 존재한다면 0부터 반환인데 1부터 하기 위해 +1 해주고, 존재하지 않는다면 -1을 반환하도록 함
         val rank = redisRank?.takeIf { it >= 0 }?.plus(1) ?: -1
 
         if (rank == -1L) {
@@ -194,7 +211,7 @@ class QueueService (
         if (removedResult) {
             log.info { "${userId}님 대기열에서 삭제 완료" }
 
-            kafkaProducerService.sendMessage(queueType)
+            redisPublisher.publish(CHANNEL_NAME, queueType)
             return true
         }
 
@@ -368,7 +385,7 @@ class QueueService (
                 .add(TOKEN_TTL_INFO, userId, expireAt)
                 .awaitSingle()
 
-            kafkaProducerService.sendMessage(queueType)
+            redisPublisher.publish(CHANNEL_NAME, queueType)
         }
 
         return poppedUsers.size

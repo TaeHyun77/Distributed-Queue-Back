@@ -8,6 +8,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler
 class CustomExceptionHandler {
 
     @ExceptionHandler(ReserveException::class)
-    fun handleCustom400Exception(ex: ReserveException): ResponseEntity<ErrorCodeDto> =
+    fun handleReserveException(ex: ReserveException): ResponseEntity<ErrorCodeDto> =
         ErrorCodeDto.Companion.toException(ex)
 }

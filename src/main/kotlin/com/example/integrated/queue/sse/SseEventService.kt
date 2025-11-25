@@ -47,7 +47,7 @@ class SseEventService(
 
     private suspend fun buildEvent(userId: String, queueType: String): String {
         return try {
-            val allowed = queueService.searchUserRanking(userId, queueType, "allow")
+            val allowed = queueService.searchUserRanking(queueType, userId,"allow")
 
             // 참가열에 존재한다면
             if (allowed != -1L) {
@@ -56,7 +56,7 @@ class SseEventService(
                 )
             // 대기열에 존재한다면
             } else {
-                val rank = queueService.searchUserRanking(userId, queueType, "wait")
+                val rank = queueService.searchUserRanking(queueType, userId,"wait")
 
                 if (rank > 0) {
                     objectMapper.writeValueAsString(UpdateSseEvent(rank = rank))
