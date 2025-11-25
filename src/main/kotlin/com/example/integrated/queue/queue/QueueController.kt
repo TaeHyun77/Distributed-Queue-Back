@@ -21,6 +21,7 @@ class QueueController (
 
 ): Loggable {
 
+    // 대기열에 사용자 등록
     @PostMapping("/register/{userId}/{queueType}")
     suspend fun registerUser(
         @PathVariable("userId") userId: String,
@@ -28,16 +29,14 @@ class QueueController (
         request: ServerHttpRequest
     ): RegisterResult {
 
-        log.info { "server name: $serverName" }
-
         val now = Instant.now()
-        // 초 값 → 마이크로초 , 나노초 값 → 마이크로초
-        val enterTimestamp = now.epochSecond * 1_000_000L + now.nano / 1_000L
+        val enterTimestamp = now.epochSecond * 1_000_000L + now.nano / 1_000L // 초 값 → 마이크로초 , 나노초 값 → 마이크로초
 
-        val idempotencyKey: String = request.headers["idempotencyKey"]?.firstOrNull()
+        val idempotencyKey = request.headers["idempotencyKey"]?.firstOrNull()
             ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)
 
-        log.info { "등록 사용자 정보 , userId: $userId, queueType: $queueType enterTimestamp: $enterTimestamp idempotencyKey: $idempotencyKey" }
+        log.info { "queue-server-name: $serverName" }
+        log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , enterTimestamp: $enterTimestamp idempotencyKey: $idempotencyKey" }
 
         return queueService.registerUserToWaitQueue(userId, queueType, enterTimestamp, idempotencyKey)
     }
@@ -71,7 +70,6 @@ class QueueController (
         @RequestParam(name = "queueType") queueType: String,
         @RequestParam(name = "queueCategory") queueCategory: String
     ): Boolean {
-
-        return queueService.cancelUser(userId, queueType.split(":")[0], queueCategory)
+        return queueService.cancelUser(userId, queueType, queueCategory)
     }
 }

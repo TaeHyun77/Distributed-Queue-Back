@@ -9,7 +9,6 @@ import org.redisson.config.SubscriptionMode
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.context.annotation.Primary
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory
 import org.springframework.data.redis.connection.RedisSentinelConfiguration
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory
@@ -64,19 +63,18 @@ class RedisConfig(
             .setDatabase(0)
             .setConnectTimeout(5000)
             .setReadMode(ReadMode.MASTER)
-            .setSubscriptionMode(SubscriptionMode.MASTER)
-            .setTimeout(10000)
+            .setSubscriptionMode(SubscriptionMode.MASTER).timeout = 10000
 
         return Redisson.create(config)
     }
 
-//    // 레디스의 Pub/Sub 기능을 위한 리스너 컨테이너
-//    @Bean
-//    fun listenerContainer(
-//        // 위에서 등록한 lettuceConnectionFactory Bean이 주입됨
-//        lettuceConnectionFactory: ReactiveRedisConnectionFactory
-//    ): ReactiveRedisMessageListenerContainer {
-//
-//        return ReactiveRedisMessageListenerContainer(lettuceConnectionFactory)
-//    }
+    // 레디스의 Pub/Sub 기능을 위한 리스너 컨테이너
+    @Bean
+    fun listenerContainer(
+        // 위에서 등록한 lettuceConnectionFactory Bean이 주입됨
+        lettuceConnectionFactory: ReactiveRedisConnectionFactory
+    ): ReactiveRedisMessageListenerContainer {
+
+        return ReactiveRedisMessageListenerContainer(lettuceConnectionFactory)
+    }
 }

@@ -1,11 +1,7 @@
 package com.example.integrated.redis
 
-import com.example.integrated.reserveException.ErrorCode
-import com.example.integrated.reserveException.ReserveException
 import com.example.integrated.util.Loggable
 import org.redisson.api.RedissonClient
-import org.redisson.connection.MasterSlaveConnectionManager
-import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Component
 import java.util.concurrent.TimeUnit
 

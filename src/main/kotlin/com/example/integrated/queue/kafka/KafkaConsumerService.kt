@@ -1,11 +1,16 @@
 package com.example.integrated.queue.kafka
 
-import com.example.integrated.queue.sse.SseEventService
 import com.example.integrated.util.Loggable
+import com.example.integrated.util.WAIT_QUEUE
 import com.example.integrated.util.readValueFromJson
 import com.fasterxml.jackson.databind.ObjectMapper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.reactor.awaitSingle
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Service
 
@@ -14,24 +19,23 @@ class KafkaConsumerService(
     @Value("\${SERVER_NAME}")
     private val serverName: String? = null,
 
-    private val objectMapper: ObjectMapper
+    private val objectMapper: ObjectMapper,
+    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
 ): Loggable {
 
-    // @KafkaListener에 groupId를 명시하지 않으면, application.properties에 정의된 consumer.group-id 값이 자동으로 적용됨
+    // "queueing-system" 토픽으로 produce 된 이벤트를 consume
+    // group-id를 지정하지 않으면, spring.kafka.consumer.group-id 설정 값으로 자동 적용됨
     @KafkaListener(topics = ["queueing-system"])
-    fun broadcastQueueEvent(message: String, record: ConsumerRecord<String, String>) {
+    suspend fun broadcastQueueEvent(message: String) {
+        val receiveMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
 
-        try {
-            // objectMapper.readValue()는 Java 라이브러리인 Jackson의 메서드이기 때문에 java 객체로 변환
-            val messageDto: QueueBroadcastDto = objectMapper.readValueFromJson<QueueBroadcastDto>(message)
-            val queueType: String = messageDto.queueType
+        // 삽입 성공 시 true, 실패 시 false 반환
+        val result = reactiveRedisTemplate.opsForZSet()
+            .add(receiveMessage.queueType + WAIT_QUEUE, receiveMessage.userId, receiveMessage.timeStamp)
+            .awaitSingle()
 
-            log.info {"Kafka consume - queueType: $queueType, topic: ${record.topic()}, partition : ${record.partition()}, consume-server-name: $serverName"}
-
-            SseEventService.sink.tryEmit(queueType)
-
-        } catch (e: Exception) {
-            log.error(e) { "Kafka 메시지 broadcast 실패" };
+        if (!result) {
+            log.warn {"consume - ZSet 삽입 실패 ⇒ userId: queueType: ${receiveMessage.queueType}, ${receiveMessage.userId}"}
         }
     }
 }
