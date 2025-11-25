@@ -1,4 +1,4 @@
-package com.example.integrated.queueing.event
+package com.example.integrated.queue.sse
 
 import com.example.integrated.util.Loggable
 import kotlinx.coroutines.flow.Flow

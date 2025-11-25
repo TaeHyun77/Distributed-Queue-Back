@@ -1,4 +1,4 @@
-package com.example.integrated.queueing.kafka
+package com.example.integrated.queue.kafka
 
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.apache.kafka.common.serialization.StringSerializer

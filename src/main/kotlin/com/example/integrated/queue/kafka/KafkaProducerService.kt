@@ -1,4 +1,4 @@
-package com.example.integrated.queueing.kafka
+package com.example.integrated.queue.kafka
 
 import com.example.integrated.util.Loggable
 import com.fasterxml.jackson.core.JsonProcessingException
@@ -30,7 +30,7 @@ class KafkaProducerService (
                 }
             }
         } catch (e: JsonProcessingException) {
-            log.error("직렬화 실패: {}", e.message)
+            log.error{"직렬화 실패: ${e.message}"}
         }
     }
 }

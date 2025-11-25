@@ -1,4 +1,4 @@
-package com.example.integrated.queueing.idempotency
+package com.example.integrated.queue.idempotency
 
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
 

@@ -1,4 +1,4 @@
-package com.example.integrated.queueing.queue
+package com.example.integrated.queue.queue
 
 import com.example.integrated.redis.RedisLockUtil
 import com.example.integrated.util.Loggable

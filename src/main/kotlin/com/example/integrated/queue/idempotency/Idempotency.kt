@@ -1,4 +1,4 @@
-package com.example.integrated.queueing.idempotency
+package com.example.integrated.queue.idempotency
 
 import com.example.integrated.BaseTime
 import org.springframework.data.annotation.Id

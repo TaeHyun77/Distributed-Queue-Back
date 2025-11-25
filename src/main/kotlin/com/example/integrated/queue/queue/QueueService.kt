@@ -1,9 +1,9 @@
-package com.example.integrated.queueing.queue
+package com.example.integrated.queue.queue
 
-import com.example.integrated.queueing.idempotency.Idempotency
-import com.example.integrated.queueing.idempotency.IdempotencyRepository
+import com.example.integrated.queue.idempotency.Idempotency
+import com.example.integrated.queue.idempotency.IdempotencyRepository
 import com.example.integrated.util.Loggable
-import com.example.integrated.queueing.kafka.KafkaProducerService
+import com.example.integrated.queue.kafka.KafkaProducerService
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
 import com.example.integrated.util.ALLOW_QUEUE

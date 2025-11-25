@@ -1,7 +1,6 @@
-package com.example.integrated.queueing.kafka
+package com.example.integrated.queue.kafka
 
-import com.example.integrated.queueing.event.QueueEventPayload
-import com.example.integrated.queueing.event.SseEventService
+import com.example.integrated.queue.sse.SseEventService
 import com.example.integrated.util.Loggable
 import com.example.integrated.util.readValueFromJson
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -29,7 +28,7 @@ class KafkaConsumerService(
 
             log.info {"Kafka consume - queueType: $queueType, topic: ${record.topic()}, partition : ${record.partition()}, consume-server-name: $serverName"}
 
-            SseEventService.sink.tryEmitNext(QueueEventPayload(queueType))
+            SseEventService.sink.tryEmit(queueType)
 
         } catch (e: Exception) {
             log.error(e) { "Kafka 메시지 broadcast 실패" };
