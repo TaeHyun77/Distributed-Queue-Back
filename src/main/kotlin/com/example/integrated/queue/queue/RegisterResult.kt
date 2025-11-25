@@ -1,4 +1,4 @@
-package com.example.integrated.queueing.queue
+package com.example.integrated.queue.queue
 
 enum class RegisterResult {
     QUEUE_REGISTERED,
