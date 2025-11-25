@@ -43,7 +43,7 @@ Redis Pub/Sub으로도 메시지 전달은 가능하지만, 메시지 손실에 
 
 [ 단일 서버 ]
 
-<img width="622" height="232" alt="Image" src="https://github.com/user-attachments/assets/400df547-e600-4093-aa9c-19c2bd2bbccf" />
+<img width="613" height="114" alt="Image" src="https://github.com/user-attachments/assets/b31a3b60-cd02-42cd-95da-ba6ac0729061" />
 
 **단일 서버에서의 대기열 등록 과정**
 1. 대기열 등록 요청 시 참가한 대기열의 이름을 전달하며, 이 과정에서 SSE Sink 구독이 이루어집니다.
