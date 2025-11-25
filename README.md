@@ -55,9 +55,10 @@ Etc : SSE<br><br>
 
 [ 분산 서버 ]
 
-![image.png](attachment:e8afa841-b95d-48db-9f80-745f6fd6b91f:image.png)<br><br>
+<img width="890" height="337" alt="Image" src="https://github.com/user-attachments/assets/ae1f1f2a-eead-4f7b-9452-07978f767875" />
+<br><br>
 
-**분산 서버에서의 대기열 등록 동작 과정**
+**분산 서버에서의 대기열 등록 동작 과정**<br><br>
 
 **기본 설정**
 
