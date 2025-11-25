@@ -46,9 +46,16 @@ Redis Pub/Sub으로도 메시지 전달은 가능하지만, 메시지 손실에 
 <img width="613" height="114" alt="Image" src="https://github.com/user-attachments/assets/b31a3b60-cd02-42cd-95da-ba6ac0729061" /><br><br>
 
 **단일 서버에서의 대기열 등록 과정**
-1. 대기열 등록 요청 시 참가한 대기열의 이름을 전달하며, 이 과정에서 SSE Sink 구독이 이루어집니다.
-2. Kafka의 대기열 토픽에 메시지를 발행( Produce )합니다.
-3. Kafka Consume을 통해 SSE sink로 전송되며, 사용자의 실시간 순위 및 예약 페이지 접근 권한을 전달받게 됩니다.<br><br>
+1. 대기열 등록 요청이 들어오면, 클라이언트는 어떤 대기열인지를 나타내는 queueType, 사용자 ID인 userId, 멱등키인idempotencyKey를 서버로 전달합니다.
+    
+    이때 요청이 도착한 시각을 서버에서 timestamp로 기록하며, 클라이언트는 서버와 SSE 연결을 맺습니다.
+    
+2. 서버는 먼저 DB에서 idempotencyKey를 조회하여 존재하지 않는 경우에만 queueType, userId, timestamp 정보를 Kafka로 publish 합니다.
+3. 서버는 Kafka 메세지를 consume 하며, Redis Sorted Set 자료구조로 이루어진 대기열에 userId를 key로, timestamp를 score로 저장하여, 자동으로 대기열 순서가 정렬되도록 합니다.
+4. 클라이언트는 SSE 연결을 통해 대기열의 상태가 갱신될 때마다 자신의 대기열 상태를 지속적으로 전달받습니다.
+5. Redis는 대기열과 참가열 두 영역으로 구성되며, 스케줄러가 주기적으로 대기열에서 일정 인원을 참가열로 이동시킵니다. 참가열로 이동된 사용자는 타깃 페이지에 접근할 수 있는 권한을 획득하여 해당 페이지로 이동하게 됩니다.
+
+<br><br>
 
 [ 분산 서버 ]
 
