@@ -22,7 +22,7 @@ Database : Redis
 
 Infra : Kafka, Docker
 
-Etc : SSE<br><br>
+Etc : SSE, Redis pub/sub<br><br>
 
 ### 기존 대기열 시스템에서의 개선점
 
