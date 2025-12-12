@@ -64,13 +64,13 @@ Etc : SSE<br><br>
 
 <img width="890" height="337" alt="Image" src="https://github.com/user-attachments/assets/ae1f1f2a-eead-4f7b-9452-07978f767875" /><br><br>
 
-**분산 서버에서의 대기열 등록 과정**<br><br>
-
 **기본 설정**
 
 대기열 프로젝트는 Docker를 사용한 분산 환경으로 이루어져 있습니다.
 
 애플리케이션이 시작될 때 각 서버는 특정 redis 채널을 구독합니다.<br><br>
+
+**분산 서버에서의 대기열 등록 과정**<br>
 
 1. 대기열 등록 요청이 들어오면, 클라이언트는 어떤 대기열인지를 나타내는 queueType, 사용자 ID인 userId, 멱등키인idempotencyKey를 서버로 전달합니다.
     
