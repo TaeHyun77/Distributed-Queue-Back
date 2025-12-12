@@ -40,19 +40,23 @@ Etc : SSE<br><br>
 
 ---
 
-[ 단일 서버 ]
+[ 기존의 단일 서버 ]
 
-<img width="613" height="114" alt="Image" src="https://github.com/user-attachments/assets/b31a3b60-cd02-42cd-95da-ba6ac0729061" /><br><br>
+<p align="center"><img width="625" height="188" alt="Image" src="https://github.com/user-attachments/assets/0205be3b-61b1-4284-a1da-17e9aecd89a4" /><br><br>
 
 **단일 서버에서의 대기열 등록 과정**
-1. 대기열 등록 요청이 들어오면, 클라이언트는 어떤 대기열인지를 나타내는 queueType, 사용자 ID인 userId, 멱등키인idempotencyKey를 서버로 전달합니다.
+1. 클라이언트가 대기열 등록을 요청하면 해당 클라이언트와 SSE 연결을 맺고, 어떤 대기열인지 나타내는 `queueType`과 사용자 ID인 `userId`를 서버로 전달하며 서버는 요청이 들어온 시각을 `timestamp`로 기록합니다.
     
-    이때 요청이 도착한 시각을 서버에서 timestamp로 기록하며, 클라이언트는 서버와 SSE 연결을 맺습니다.
+    이때 서버는 SSE 스트림을 반환하며, 이후 스트림에 이벤트가 push될 때마다 클라이언트는 이를 실시간으로 수신받을 수 있게 됩니다.
+   
     
-2. 서버는 먼저 DB에서 idempotencyKey를 조회하여 존재하지 않는 경우에만 queueType, userId, timestamp 정보를 Kafka로 publish 합니다.
-3. 서버는 Kafka 메세지를 consume 하며, Redis Sorted Set 자료구조로 이루어진 대기열에 userId를 key로, timestamp를 score로 저장하여, 자동으로 대기열 순서가 정렬되도록 합니다.
-4. 클라이언트는 SSE 연결을 통해 대기열의 상태가 갱신될 때마다 자신의 대기열 상태를 지속적으로 전달받습니다.
-5. Redis는 대기열과 참가열 두 영역으로 구성되며, 스케줄러가 주기적으로 대기열에서 일정 인원을 참가열로 이동시킵니다. 참가열로 이동된 사용자는 타깃 페이지에 접근할 수 있는 권한을 획득하여 해당 페이지로 이동하게 됩니다.
+2. 대기열 등록 요청이 처리되면, 서버는 Redis의 해당 queueType ZSET에 `userId`를 key로, 요청 시각을 score로 저장하여 자동으로 정렬된 대기 순서를 유지합니다.
+   
+3. 이후 사용자의 대기열 상태 정보를 DB에 저장하고, 이 변경 사항을 Debezium 커넥터가 CDC를 통해 감지합니다. 감지된 업데이트는 Outbox 패턴을 통해 변경된 queueType 대기열의 queueType 값을 Kafka로 Produce 합니다.
+   
+4. Kafka 메시지를 Consumer가 처리하면, 연결된 SSE 스트림을 통해 해당 queueType에 존재하는 사용자들의 실시간 상태가 전달됩니다. 사용자가 아직 대기열에 있다면 현재 순위를, 허용열에 진입했다면 `confirm` 이벤트를 전송하여 클라이언트가 해당 페이지로 이동할 수 있도록 합니다.
+   
+5. 이러한 흐름을 통해 대기열 등록/삭제/이동 등 상태 변화가 발생할 때마다, 해당 대기열에 연결된 모든 사용자는 자신의 대기열 상태를 실시간 SSE 이벤트로 전달받게 됩니다.<br><br>
 
 <br><br>
 
