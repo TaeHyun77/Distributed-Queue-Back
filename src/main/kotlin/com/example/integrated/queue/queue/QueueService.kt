@@ -14,6 +14,7 @@ import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.dao.DuplicateKeyException
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseCookie
@@ -87,40 +88,20 @@ class QueueService (
     ): Boolean {
 
         val now = LocalDateTime.now()
-        val existing = idempotencyRepository.findByIdempotencyKey(idempotencyKey)
 
-        // 키가 없음 → 생성하고 false
-        if (existing == null) {
-            saveNewIdempotency(idempotencyKey, userId, queueType, now)
-            return false
-        }
-
-        // 키가 존재하고, 유효하다면
-        if (now.isBefore(existing.expiresAt)) {
-            return true
-        }
-
-        // 키가 존재하지만 만료 → 삭제 후 재등록 → false
-        idempotencyRepository.delete(existing)
-        saveNewIdempotency(idempotencyKey, userId, queueType, now)
-        return false
-    }
-
-    private suspend fun saveNewIdempotency(
-        key: String,
-        userId: String,
-        queueType: String,
-        now: LocalDateTime
-    ) {
-        val idempotency = Idempotency(
-            id = null,
-            idempotencyKey = key,
+        val entity = Idempotency(
+            idempotencyKey = idempotencyKey,
             userId = userId,
             queueType = queueType,
             expiresAt = now.plusMinutes(5)
         )
 
-        idempotencyRepository.save(idempotency)
+        return try {
+            idempotencyRepository.save(entity)
+            false
+        } catch (e: DuplicateKeyException) {
+            true // 이미 처리된 요청
+        }
     }
 
     /*

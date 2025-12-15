@@ -8,9 +8,6 @@ import java.time.LocalDateTime
 @Table("queue_idempotency")
 class Idempotency (
 
-    @Id
-    val id: Long?= null,
-
     val idempotencyKey: String,
 
     val userId: String,

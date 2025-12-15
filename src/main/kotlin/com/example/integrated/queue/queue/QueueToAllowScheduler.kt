@@ -48,7 +48,7 @@ class QueueToAllowScheduler(
     @PostConstruct
     fun schedulingStart() {
         tickerScope.launch {
-            tickerFlow(moveToAllowInterval, 30_000)
+            tickerFlow(moveToAllowInterval, 30_000) // 30초 후 시작
                 .collect {
                     val result = redisLockUtil.acquireLockAndRun("scheduling_key") {
                         queueTypes.forEach { queueType ->

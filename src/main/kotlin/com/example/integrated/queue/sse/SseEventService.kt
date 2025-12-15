@@ -25,7 +25,6 @@ class SseEventService(
         val sink = MutableSharedFlow<String>(replay = 1)
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     fun streamQueueEvents(
         userId: String,
         queueType: String
