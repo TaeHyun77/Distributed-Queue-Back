@@ -17,20 +17,22 @@ class KafkaProducerService (
     private val objectMapper: ObjectMapper
 ): Loggable {
 
-    fun sendMessage(queueType: String, userId: String, timeStamp: Double) {
+    fun sendMessage(
+        queueType: String,
+        userId: String,
+        timeStamp: Double
+    ) {
         try {
             val message = KafkaMessage(queueType, userId, timeStamp)
-            val key = queueType + "_" + userId
 
             val jsonMessage = objectMapper.writeValueAsString(message)
 
-            kafkaTemplate.send(queueEventTopicName, key, jsonMessage).whenComplete { _, ex ->
-                if (ex == null) {
-                    log.info { "Kafka 메시지 전송 성공 - Topic: $queueEventTopicName, Key: $key" }
-                } else {
-                    log.error { "Kafka 메시지 전송 실패 - Topic: $queueEventTopicName, Key: $key" }
-                }
+            kafkaTemplate.send(queueEventTopicName, jsonMessage).whenComplete { _, ex ->
+                ex?.let {
+                    log.error { "Kafka 메시지 전송 실패 - Topic: $queueEventTopicName" }
+                } ?: log.info { "Kafka 메시지 전송 성공 - Topic: $queueEventTopicName" }
             }
+
         } catch (e: JsonProcessingException) {
             log.error {"kafka produce 직렬화 실패"}
             throw e
