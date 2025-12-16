@@ -22,23 +22,20 @@ class QueueController (
 ): Loggable {
 
     // 대기열에 사용자 등록
-    @PostMapping("/register/{userId}/{queueType}")
+    @PostMapping("/register/{queueType}/{userId}")
     suspend fun registerUser(
-        @PathVariable("userId") userId: String,
         @PathVariable("queueType") queueType: String,
+        @PathVariable("userId") userId: String,
         request: ServerHttpRequest
     ): RegisterResult {
-
-        val now = Instant.now()
-        val enterTimestamp = now.epochSecond * 1_000_000L + now.nano / 1_000L // 초 값 → 마이크로초 , 나노초 값 → 마이크로초
 
         val idempotencyKey = request.headers["idempotencyKey"]?.firstOrNull()
             ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)
 
         log.info { "queue-server-name: $serverName" }
-        log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , enterTimestamp: $enterTimestamp idempotencyKey: $idempotencyKey" }
+        log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , idempotencyKey: $idempotencyKey" }
 
-        return queueService.registerUserToWaitQueue(userId, queueType, enterTimestamp, idempotencyKey)
+        return queueService.registerUserToWaitQueue(queueType, userId, idempotencyKey)
     }
 
     // 쿠키에 토큰 전달

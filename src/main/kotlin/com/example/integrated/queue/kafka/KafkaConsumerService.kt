@@ -23,19 +23,23 @@ class KafkaConsumerService(
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
 ): Loggable {
 
-    // "queueing-system" 토픽으로 produce 된 이벤트를 consume
-    // group-id를 지정하지 않으면, spring.kafka.consumer.group-id 설정 값으로 자동 적용됨
+
+    /*
+    * "queueing-system" 토픽으로 produce 된 이벤트를 consume
+    * group-id를 지정하지 않으면, spring.kafka.consumer.group-id 설정 값으로 자동 적용됨
+    * */
     @KafkaListener(topics = ["queueing-system"])
-    suspend fun broadcastQueueEvent(message: String) {
-        val receiveMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
+    suspend fun consumeMessage(message: String) {
+        val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
+        log.info { "${consumeMessage.queueType} , ${consumeMessage.userId}" }
 
         // 삽입 성공 시 true, 실패 시 false 반환
         val result = reactiveRedisTemplate.opsForZSet()
-            .add(receiveMessage.queueType + WAIT_QUEUE, receiveMessage.userId, receiveMessage.timeStamp)
+            .add(consumeMessage.queueType + WAIT_QUEUE, consumeMessage.userId, consumeMessage.timeStamp)
             .awaitSingle()
 
         if (!result) {
-            log.warn {"consume - ZSet 삽입 실패 ⇒ userId: queueType: ${receiveMessage.queueType}, ${receiveMessage.userId}"}
+            log.warn {"consume - ZSet 삽입 실패 ⇒ userId: queueType: ${consumeMessage.queueType}, ${consumeMessage.userId}"}
         }
     }
 }

@@ -48,22 +48,22 @@ class QueueService (
      * 대기열 등록
      * */
     suspend fun registerUserToWaitQueue(
-        userId: String,
         queueType: String,
-        enterTimestamp: Long,
+        userId: String,
         idempotencyKey: String
     ): RegisterResult {
 
         try {
-            // 멱등성 관리 로직, 멱등키가 존재하고, 유효하다면 동일한 요청임을 나타탬
-            if (isIdempotent(userId, queueType, idempotencyKey)) {
+            // 멱등성 관리 로직, 멱등키가 존재하고, 유효하다면 동일한 요청임을 나타냄
+            if (isIdempotent(queueType, userId, idempotencyKey)) {
                 return RegisterResult.ALREADY_IDEMPOTENCY_EXISTS
             }
 
-            // redis 대기열 또는 참가열에 해당 사용자가 존재하는지 확인하는 로직
+            // redis 대기열 또는 참가열에 해당 사용자가 존재하는지 확인
             validateUserNotQueued(queueType, userId)
+            val timestamp: Long = generateScore()
 
-            kafkaProducerService.sendMessage(queueType, userId, enterTimestamp.toDouble())
+            kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())
             redisPublisher.publish(CHANNEL_NAME, queueType)
 
             return RegisterResult.QUEUE_REGISTERED
@@ -77,13 +77,24 @@ class QueueService (
         }
     }
 
+    suspend fun generateScore(): Long {
+        val timestampMicros = Instant.now().toEpochMilli() * 1000
+
+        val seq = reactiveRedisTemplate.opsForValue()
+            .increment("queue:seq")
+            .awaitSingle()
+
+        val seqMasked = seq and 0xFFFFF
+        return (timestampMicros shl 20) or seqMasked
+    }
+
     /**
      * 멱등 로직 확인
      * */
     @Transactional
     suspend fun isIdempotent(
-        userId: String,
         queueType: String,
+        userId: String,
         idempotencyKey: String
     ): Boolean {
 
@@ -100,6 +111,7 @@ class QueueService (
             idempotencyRepository.save(entity)
             false
         } catch (e: DuplicateKeyException) {
+            log.info { "중복된 요청입니다 - ${entity.idempotencyKey}" }
             true // 이미 처리된 요청
         }
     }
@@ -109,8 +121,8 @@ class QueueService (
     * 두 비동기 작업이 모두 완료된 후에야 다음 로직이 실행됨
     * */
     suspend fun validateUserNotQueued(
-        userId: String,
-        queueType: String
+        queueType: String,
+        userId: String
     ) {
         val (waitRank, allowRank) = coroutineScope {
             awaitAll(
@@ -135,7 +147,7 @@ class QueueService (
     ): Long {
 
         val keyType = if (queueCategory == "wait") WAIT_QUEUE else ALLOW_QUEUE
-        val queueKey = queueType + keyType // "reserve_공연A:user-queue:allow" 이런 식
+        val queueKey = queueType + keyType // "reserve_공연A:user-queue:allow"와 같은 형태
 
         val redisRank = reactiveRedisTemplate.opsForZSet()
             .rank(queueKey, userId)
