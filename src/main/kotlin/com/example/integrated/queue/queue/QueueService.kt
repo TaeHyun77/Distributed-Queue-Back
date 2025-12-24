@@ -90,6 +90,10 @@ class QueueService (
 
     /**
      * 멱등 로직 확인
+     *
+     * 키 값으로 조회하여 있으면 false 반환하는 방법은 동시성 문제가 발생할 수 있으므로 아래와 같이 설정
+     *
+     * expiresAt을 설정하여 특정 기간마다 삭제하여 정리하도록 함
      * */
     @Transactional
     suspend fun isIdempotent(
@@ -168,14 +172,14 @@ class QueueService (
      * 대기열에서 사용자 삭제
      * */
     suspend fun cancelUser(
-        userId: String,
         queueType: String,
+        userId: String,
         queueCategory: String
     ): Boolean {
         try {
             return when (queueCategory) {
-                "wait" -> cancelWaitOrAllow(userId, queueType)
-                "allow" -> cancelAllowUser(userId, queueType)
+                "wait" -> cancelWaitOrAllow(queueType, userId)
+                "allow" -> cancelAllowUser(queueType, userId)
                 else -> throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_QUEUE_CATEGORY)
             }
         } catch (e: Exception) {
@@ -192,8 +196,8 @@ class QueueService (
     *  이러한 타이밍으로 인한 경쟁 상태를 별도로 관리하여 문제를 해결
     * */
     suspend fun cancelWaitOrAllow(
-        userId: String,
-        queueType: String
+        queueType: String,
+        userId: String
     ): Boolean {
         val waitQueueKey = "$queueType$WAIT_QUEUE"
 
@@ -209,7 +213,7 @@ class QueueService (
         }
 
         // 대기열에서 삭제 실패했다면 참가열에서 삭제 시도
-        val removedFromAllow = cancelAllowUser(userId, queueType)
+        val removedFromAllow = cancelAllowUser(queueType, userId)
 
         if (removedFromAllow){
             log.info { "참가열 삭제 완료" }
@@ -224,8 +228,8 @@ class QueueService (
      * 허용열에서 사용자 삭제
     * */
     suspend fun cancelAllowUser(
-        userId: String,
-        queueType: String
+        queueType: String,
+        userId: String
     ): Boolean {
         val allowQueueKey = "$queueType$ALLOW_QUEUE"
 
@@ -242,8 +246,8 @@ class QueueService (
     * 인증을 위한 토큰 생성
     * */
     fun generateAccessToken(
-        userId: String,
-        queueType: String
+        queueType: String,
+        userId: String
     ): String {
         try {
             val mac = Mac.getInstance("HmacSHA256")
@@ -270,15 +274,15 @@ class QueueService (
     * 토큰을 쿠키에 저장
     * */
     fun sendCookie(
-        userId: String,
         queueType: String,
+        userId: String,
         response: ServerHttpResponse
     ): ResponseEntity<String> {
 
         val encodedName = URLEncoder.encode(userId, StandardCharsets.UTF_8)
         val cookieName = "reserve_user-access-cookie_$encodedName"
 
-        val token = generateAccessToken(userId, queueType)
+        val token = generateAccessToken(queueType, userId)
 
         val responseCookie = ResponseCookie.from(cookieName, token)
             .path("/")
@@ -294,8 +298,8 @@ class QueueService (
     * 타겟 페이지에 접속하면 쿠키에 저장된 토큰과 비교하는 로직
     * */
     suspend fun isAccessTokenValid(
-        userId: String,
         queueType: String,
+        userId: String,
         token: String
     ): Boolean {
 
@@ -304,7 +308,7 @@ class QueueService (
         val expireTime = ttlInfo.toLong()
         val now = Instant.now().epochSecond
 
-        return generateAccessToken(userId, queueType) == token && now <= expireTime
+        return generateAccessToken(queueType, userId) == token && now <= expireTime
     }
 
     /*
