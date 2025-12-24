@@ -23,7 +23,6 @@ class KafkaConsumerService(
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
 ): Loggable {
 
-
     /*
     * "queueing-system" 토픽으로 produce 된 이벤트를 consume
     * group-id를 지정하지 않으면, spring.kafka.consumer.group-id 설정 값으로 자동 적용됨

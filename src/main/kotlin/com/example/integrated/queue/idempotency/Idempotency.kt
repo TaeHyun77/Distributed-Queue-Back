@@ -15,5 +15,4 @@ class Idempotency (
     val queueType: String,
 
     val expiresAt: LocalDateTime
-
 ): BaseTime()

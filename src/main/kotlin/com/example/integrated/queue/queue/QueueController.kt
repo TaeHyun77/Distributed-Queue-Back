@@ -22,15 +22,14 @@ class QueueController (
 ): Loggable {
 
     // 대기열에 사용자 등록
-    @PostMapping("/register/{queueType}/{userId}")
+    @PostMapping("/register/{idempotencyKey}")
     suspend fun registerUser(
-        @PathVariable("queueType") queueType: String,
-        @PathVariable("userId") userId: String,
-        request: ServerHttpRequest
+        @RequestBody request: QueueRequest,
+        @PathVariable("idempotencyKey") idempotencyKey: String
     ): RegisterResult {
 
-        val idempotencyKey = request.headers["idempotencyKey"]?.firstOrNull()
-            ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)
+        val queueType = request.queueType
+        val userId = request.userId
 
         log.info { "queue-server-name: $serverName" }
         log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , idempotencyKey: $idempotencyKey" }
@@ -41,32 +40,21 @@ class QueueController (
     // 쿠키에 토큰 전달
     @GetMapping("/createCookie")
     suspend fun sendCookie(
-        @RequestParam(name = "userId") userId: String,
-        @RequestParam(name = "queueType") queueType: String,
+        @RequestBody request: QueueRequest,
         response: ServerHttpResponse
-    ): ResponseEntity<String> {
-
-        return queueService.sendCookie(userId, queueType, response)
-    }
+    ): ResponseEntity<String> = queueService.sendCookie(request.queueType, request.userId, response)
 
     // 토큰의 유효성 판단
-    @GetMapping("/isValidateToken")
+    @GetMapping("/isValidateToken/{token}")
     suspend fun isAccessTokenValid(
-        @RequestParam(name = "userId") userId: String,
-        @RequestParam(name = "queueType") queueType: String,
-        @RequestParam(name = "token") token: String
-    ): Boolean {
-
-        return queueService.isAccessTokenValid(userId, queueType, token)
-    }
+        @RequestBody request: QueueRequest,
+        @PathVariable("token") token: String
+    ): Boolean = queueService.isAccessTokenValid(request.queueType, request.userId, token)
 
     // 대기열 or 참가열 등록 취소
-    @DeleteMapping("/cancel")
+    @DeleteMapping("/cancel/{queueCategory}")
     suspend fun cancelReserve(
-        @RequestParam(name = "userId") userId: String,
-        @RequestParam(name = "queueType") queueType: String,
-        @RequestParam(name = "queueCategory") queueCategory: String
-    ): Boolean {
-        return queueService.cancelUser(userId, queueType, queueCategory)
-    }
+        @RequestBody request: QueueRequest,
+        @PathVariable("queueCategory") queueCategory: String
+    ): Boolean = queueService.cancelUser(request.queueType, request.userId, queueCategory)
 }
