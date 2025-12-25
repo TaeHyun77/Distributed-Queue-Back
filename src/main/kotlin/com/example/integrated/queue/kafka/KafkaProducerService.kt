@@ -24,7 +24,6 @@ class KafkaProducerService (
     ) {
         try {
             val message = KafkaMessage(queueType, userId, timeStamp)
-
             val jsonMessage = objectMapper.writeValueAsString(message)
 
             kafkaTemplate.send(queueEventTopicName, jsonMessage).whenComplete { _, ex ->

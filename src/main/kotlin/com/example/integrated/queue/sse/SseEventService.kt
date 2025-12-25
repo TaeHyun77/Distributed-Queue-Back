@@ -26,13 +26,14 @@ class SseEventService(
     }
 
     fun streamQueueEvents(
-        userId: String,
-        queueType: String
+        queueType: String,
+        userId: String
     ): Flow<ServerSentEvent<String>> {
         return sink
             .filter { it == queueType }
             .map {
-                ServerSentEvent.builder(buildEvent(userId, queueType)).build()
+                ServerSentEvent.builder(buildEvent(queueType, userId))
+                    .build()
             }
             .catch { e ->
                 log.error { "SSE 처리 중 에러: ${e.message}" }
@@ -40,11 +41,16 @@ class SseEventService(
                     ErrorSseEvent(message = "sse 이벤트 전송 오류 발생")
                 )
 
-                emit(ServerSentEvent.builder(err).build())
+                emit(ServerSentEvent.builder(err)
+                    .build()
+                )
             }
     }
 
-    private suspend fun buildEvent(userId: String, queueType: String): String {
+    private suspend fun buildEvent(
+        queueType: String,
+        userId: String,
+    ): String {
         return try {
             val allowed = queueService.searchUserRanking(queueType, userId,"allow")
 

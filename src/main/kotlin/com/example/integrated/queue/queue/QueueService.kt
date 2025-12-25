@@ -44,9 +44,7 @@ class QueueService (
     private val redisPublisher: RedisPublisher
 ): Loggable {
 
-    /**
-     * 대기열 등록
-     * */
+    // 대기열 등록
     suspend fun registerUserToWaitQueue(
         queueType: String,
         userId: String,
@@ -61,9 +59,10 @@ class QueueService (
 
             // redis 대기열 또는 참가열에 해당 사용자가 존재하는지 확인
             validateUserNotQueued(queueType, userId)
-            val timestamp: Long = generateScore()
 
+            val timestamp: Long = generateScore()
             kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())
+
             redisPublisher.publish(CHANNEL_NAME, queueType)
 
             return RegisterResult.QUEUE_REGISTERED
@@ -73,26 +72,12 @@ class QueueService (
             throw e
         } catch (e: Exception) {
             log.error{ "대기열 등록 중 알 수 없는 에러 발생 - ${e.message}" }
-            throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.FAIL_TO_REGISTER_USER_IN_QUEUE)
+            throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.FAIL_TO_REGISTER)
         }
     }
 
-    suspend fun generateScore(): Long {
-        val timestampMicros = Instant.now().toEpochMilli() * 1000
-
-        val seq = reactiveRedisTemplate.opsForValue()
-            .increment("queue:seq")
-            .awaitSingle()
-
-        val seqMasked = seq and 0xFFFFF
-        return (timestampMicros shl 20) or seqMasked
-    }
-
-    /**
-     * 멱등 로직 확인
-     *
+    /** 멱등 로직 확인
      * 키 값으로 조회하여 있으면 false 반환하는 방법은 동시성 문제가 발생할 수 있으므로 아래와 같이 설정
-     *
      * expiresAt을 설정하여 특정 기간마다 삭제하여 정리하도록 함
      * */
     @Transactional
@@ -153,13 +138,13 @@ class QueueService (
         val keyType = if (queueCategory == "wait") WAIT_QUEUE else ALLOW_QUEUE
         val queueKey = queueType + keyType // "reserve_공연A:user-queue:allow"와 같은 형태
 
-        val redisRank = reactiveRedisTemplate.opsForZSet()
+        val rank = reactiveRedisTemplate.opsForZSet()
             .rank(queueKey, userId)
             .awaitFirstOrNull()
+            ?.let { it + 1 }
+            ?: -1L
 
-        val rank = redisRank?.takeIf { it >= 0 }?.plus(1) ?: -1
-
-        if (rank == -1L) {
+        if (rank < 0) {
             log.info { "[$queueCategory] $userId 님이 존재하지 않습니다." }
         } else {
             log.info { "[$queueCategory] $userId 님의 현재 순위 $rank" }
@@ -183,7 +168,7 @@ class QueueService (
                 else -> throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_QUEUE_CATEGORY)
             }
         } catch (e: Exception) {
-            log.error(e) {" 대기열/참가열 삭제 중 에러 발생 "}
+            log.error(" 대기열/참가열 삭제 중 에러 발생 - ${e.message}")
 
             throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.REDIS_OPERATION_FAILED)
         }
@@ -201,27 +186,28 @@ class QueueService (
     ): Boolean {
         val waitQueueKey = "$queueType$WAIT_QUEUE"
 
-        val removedResult = reactiveRedisTemplate.opsForZSet()
+        // 0 : 해당 사용자 없음 , 1 : 해당 사용자 삭제
+        val isRemovedWait = reactiveRedisTemplate.opsForZSet()
             .remove(waitQueueKey, userId)
-            .awaitSingle() == 1L // 0 : 해당 사용자 없음 , 1 : 해당 사용자 삭제
+            .awaitSingle()
 
-        if (removedResult) {
-            log.info { "${userId}님 대기열에서 삭제 완료" }
+        if (isRemovedWait > 0) {
+            log.info { "$userId 님 대기열에서 삭제 완료" }
 
             redisPublisher.publish(CHANNEL_NAME, queueType)
             return true
         }
 
         // 대기열에서 삭제 실패했다면 참가열에서 삭제 시도
-        val removedFromAllow = cancelAllowUser(queueType, userId)
+        val isRemovesAllow = cancelAllowUser(queueType, userId)
 
-        if (removedFromAllow){
+        if (isRemovesAllow){
             log.info { "참가열 삭제 완료" }
         } else {
             log.info { "참가열 삭제 실패" }
         }
 
-        return removedFromAllow
+        return isRemovesAllow
     }
 
     /**
@@ -237,7 +223,7 @@ class QueueService (
             .remove(allowQueueKey, userId)
             .awaitSingle() == 1L
 
-        if (isRemoved) removeTtlKey(queueType, userId)
+        if (isRemoved) removeTtlKey(userId)
 
         return isRemoved
     }
@@ -259,10 +245,6 @@ class QueueService (
 
             return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
 
-        } catch (e: NoSuchAlgorithmException) {
-            log.error(e) { "HmacSHA256 알고리즘을 찾을 수 없습니다." }
-
-            throw IllegalStateException("Token 생성 실패", e)
         } catch (e: Exception) {
             log.error(e) { "토큰 생성 중 에러 발생." }
 
@@ -302,52 +284,15 @@ class QueueService (
         userId: String,
         token: String
     ): Boolean {
+        return getTtlInfo(userId)
+            ?.toLong()
+            ?.let { expireAt ->
+                val now = Instant.now().epochSecond
+                val notExpired = now < expireAt
+                val tokenMatches = generateAccessToken(queueType, userId) == token
 
-        val ttlInfo = getTtlInfo(userId) ?: return false
-
-        val expireTime = ttlInfo.toLong()
-        val now = Instant.now().epochSecond
-
-        return generateAccessToken(queueType, userId) == token && now <= expireTime
-    }
-
-    /*
-    * TTL 키 삭제 로직
-    * */
-    private suspend fun removeTtlKey(queueType: String, userId: String) {
-        try {
-            val ttlInfo = getTtlInfo(userId)
-
-            if (ttlInfo == null) {
-                log.warn { "$queueType:$userId TTL 키가 존재하지 않아 삭제되지 않았습니다." }
-                return
-            }
-
-            val isRemoved = reactiveRedisTemplate.opsForZSet()
-                .remove(TOKEN_TTL_INFO, userId)
-                .awaitSingle()
-
-            if (isRemoved == 1L) {
-                log.info { "$queueType:$userId TTL 키 성공적으로 삭제 완료" }
-            }
-        } catch (e: Exception) {
-            log.error(e) { "TTL 키 삭제 실패" }
-
-            throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.REDIS_OPERATION_FAILED)
-        }
-    }
-
-    private suspend fun getTtlInfo(
-        userId: String
-    ): Double? {
-        return try {
-            reactiveRedisTemplate.opsForZSet()
-                .score(TOKEN_TTL_INFO, userId)
-                .awaitSingleOrNull()
-        } catch (e: Exception) {
-            log.error(e) { "TTL 정보 조회 실패: $userId" }
-            null
-        }
+                notExpired && tokenMatches
+            } ?: false
     }
 
     suspend fun allowUser(
@@ -357,20 +302,17 @@ class QueueService (
         val waitQueueKey = "$queueType$WAIT_QUEUE"
         val allowQueueKey = "$queueType$ALLOW_QUEUE"
 
-        val poppedUsers = reactiveRedisTemplate
-            .opsForZSet()
+        val poppedUsers = reactiveRedisTemplate.opsForZSet()
             .popMin(waitQueueKey, count)
             .collectList()
             .awaitSingle() // 값이 있으면 List<T> 반환, 값이 없으면 빈 List 반환
 
         if (poppedUsers.isEmpty()) return 0
 
-        val now = Instant.now()
-        val timestamp = now.epochSecond * 1_000_000_000L + now.nano
-        val expireAt = now.plus(Duration.ofMinutes(10)).epochSecond.toDouble()
-
         poppedUsers.forEach { user ->
             val userId = user.value.toString()
+            val timestamp: Long = generateScore()
+            val expireAt = Instant.now().plus(Duration.ofMinutes(10)).epochSecond.toDouble()
 
             // 참가열에 사용자 이동
             reactiveRedisTemplate.opsForZSet()
@@ -381,10 +323,44 @@ class QueueService (
             reactiveRedisTemplate.opsForZSet()
                 .add(TOKEN_TTL_INFO, userId, expireAt)
                 .awaitSingle()
+        }
 
+        if (!poppedUsers.isEmpty()) {
             redisPublisher.publish(CHANNEL_NAME, queueType)
         }
 
         return poppedUsers.size
+    }
+
+    suspend fun generateScore(): Long {
+        val timestampMicros = Instant.now().toEpochMilli() * 1000
+
+        val seq = reactiveRedisTemplate.opsForValue()
+            .increment("queue:seq")
+            .awaitSingle()
+
+        val seqMasked = seq and 0xFFFFF
+        return (timestampMicros shl 20) or seqMasked
+    }
+
+    /*
+    * TTL 키 삭제 로직
+    * */
+    private suspend fun removeTtlKey(userId: String) {
+        val isRemove = reactiveRedisTemplate.opsForZSet()
+            .remove(TOKEN_TTL_INFO, userId)
+            .awaitSingle()
+
+        require(isRemove == 1L) {"TTL 키가 존재하지 않습니다"}
+    }
+
+    private suspend fun getTtlInfo(
+        userId: String
+    ): Double? {
+        val ttlInfo: Double? = reactiveRedisTemplate.opsForZSet()
+            .score(TOKEN_TTL_INFO, userId)
+            .awaitSingleOrNull()
+
+        return ttlInfo
     }
 }
