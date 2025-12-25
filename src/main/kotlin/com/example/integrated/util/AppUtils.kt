@@ -36,5 +36,5 @@ suspend fun logScope(name: String, scope: CoroutineScope? = null) {
 }
 
 inline fun <reified T> ObjectMapper.readValueFromJson(json: String): T {
-    return this.readValue(json, T::class.java)
+    return readValue(json, T::class.java)
 }

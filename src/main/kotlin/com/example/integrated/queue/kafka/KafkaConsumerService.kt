@@ -4,11 +4,7 @@ import com.example.integrated.util.Loggable
 import com.example.integrated.util.WAIT_QUEUE
 import com.example.integrated.util.readValueFromJson
 import com.fasterxml.jackson.databind.ObjectMapper
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactor.awaitSingle
-import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.kafka.annotation.KafkaListener
@@ -16,28 +12,25 @@ import org.springframework.stereotype.Service
 
 @Service
 class KafkaConsumerService(
-    @Value("\${SERVER_NAME}")
-    private val serverName: String? = null,
-
     private val objectMapper: ObjectMapper,
-    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
+    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
 ): Loggable {
 
     /*
     * "queueing-system" 토픽으로 produce 된 이벤트를 consume
     * group-id를 지정하지 않으면, spring.kafka.consumer.group-id 설정 값으로 자동 적용됨
     * */
-    @KafkaListener(topics = ["queueing-system"])
+    @KafkaListener(topics = ["\${queue.event.topic.name}"])
     suspend fun consumeMessage(message: String) {
         val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
-        log.info { "${consumeMessage.queueType} , ${consumeMessage.userId}" }
+        val key = consumeMessage.queueType + WAIT_QUEUE
 
         // 삽입 성공 시 true, 실패 시 false 반환
-        val result = reactiveRedisTemplate.opsForZSet()
-            .add(consumeMessage.queueType + WAIT_QUEUE, consumeMessage.userId, consumeMessage.timeStamp)
+        val isInserted = reactiveRedisTemplate.opsForZSet()
+            .add(key, consumeMessage.userId, consumeMessage.timeStamp)
             .awaitSingle()
 
-        if (!result) {
+        if (!isInserted) {
             log.warn {"consume - ZSet 삽입 실패 ⇒ userId: queueType: ${consumeMessage.queueType}, ${consumeMessage.userId}"}
         }
     }
