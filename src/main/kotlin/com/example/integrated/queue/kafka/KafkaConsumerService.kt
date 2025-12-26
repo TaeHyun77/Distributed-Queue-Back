@@ -1,5 +1,7 @@
 package com.example.integrated.queue.kafka
 
+import com.example.integrated.redis.pubsub.RedisPublisher
+import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
 import com.example.integrated.util.WAIT_QUEUE
 import com.example.integrated.util.readValueFromJson
@@ -13,7 +15,8 @@ import org.springframework.stereotype.Service
 @Service
 class KafkaConsumerService(
     private val objectMapper: ObjectMapper,
-    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
+    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
+    private val redisPublisher: RedisPublisher
 ): Loggable {
 
     /*
@@ -23,14 +26,20 @@ class KafkaConsumerService(
     @KafkaListener(topics = ["\${queue.event.topic.name}"])
     suspend fun consumeMessage(message: String) {
         val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
-        val key = consumeMessage.queueType + WAIT_QUEUE
+        val queueType = consumeMessage.queueType
+        val userId = consumeMessage.userId
+        val timeStamp = consumeMessage.timeStamp
+
+        val key = queueType + WAIT_QUEUE
 
         // 삽입 성공 시 true, 실패 시 false 반환
         val isInserted = reactiveRedisTemplate.opsForZSet()
-            .add(key, consumeMessage.userId, consumeMessage.timeStamp)
+            .add(key,userId, timeStamp)
             .awaitSingle()
 
-        if (!isInserted) {
+        if (isInserted) {
+            redisPublisher.publish(CHANNEL_NAME, queueType)
+        } else {
             log.warn {"consume - ZSet 삽입 실패 ⇒ userId: queueType: ${consumeMessage.queueType}, ${consumeMessage.userId}"}
         }
     }
