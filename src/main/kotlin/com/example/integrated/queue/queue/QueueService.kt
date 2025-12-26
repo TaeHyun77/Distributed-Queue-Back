@@ -52,7 +52,7 @@ class QueueService (
     ): RegisterResult {
 
         try {
-            // 멱등성 관리 로직, 멱등키가 존재하고, 유효하다면 동일한 요청임을 나타냄
+            // 멱등성 로직
             if (isIdempotent(queueType, userId, idempotencyKey)) {
                 return RegisterResult.ALREADY_IDEMPOTENCY_EXISTS
             }
@@ -63,10 +63,7 @@ class QueueService (
             val timestamp: Long = generateScore()
             kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())
 
-            redisPublisher.publish(CHANNEL_NAME, queueType)
-
             return RegisterResult.QUEUE_REGISTERED
-
         } catch (e: ReserveException) {
             log.error{ "대기열 등록 중 에러 발생 - ${e.message}" }
             throw e
