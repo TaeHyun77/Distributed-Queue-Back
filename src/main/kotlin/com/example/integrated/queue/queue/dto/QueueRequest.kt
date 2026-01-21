@@ -1,4 +1,4 @@
-package com.example.integrated.queue.queue
+package com.example.integrated.queue.queue.dto
 
 data class QueueRequest (
     val queueType: String,
