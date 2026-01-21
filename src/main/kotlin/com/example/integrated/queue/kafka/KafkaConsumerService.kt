@@ -26,18 +26,24 @@ class KafkaConsumerService(
     @KafkaListener(topics = ["\${queue.event.topic.name}"])
     suspend fun consumeMessage(message: String) {
         val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
+
         val queueType = consumeMessage.queueType
         val userId = consumeMessage.userId
         val timeStamp = consumeMessage.timeStamp
 
-        val key = queueType + WAIT_QUEUE
+        val waitKey = queueType + WAIT_QUEUE
 
         // 삽입 성공 시 true, 실패 시 false 반환
         val isInserted = reactiveRedisTemplate.opsForZSet()
-            .add(key,userId, timeStamp)
+            .add(waitKey,userId, timeStamp)
             .awaitSingle()
 
         if (isInserted) {
+            // 활성화되는 대기열
+            reactiveRedisTemplate.opsForSet()
+                .add("queue:active", queueType)
+                .awaitSingle()
+
             redisPublisher.publish(CHANNEL_NAME, queueType)
         } else {
             log.warn {"consume - ZSet 삽입 실패 ⇒ userId: queueType: ${consumeMessage.queueType}, ${consumeMessage.userId}"}

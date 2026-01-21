@@ -43,37 +43,6 @@ services:
     networks:
       - integrated-net
 
-  # 예약 서버
-  integrated-reserve-1:
-    image: ayeah77/integrated-reserve
-    container_name: integrated-reserve01
-    environment:
-      - SERVER_NAME=reserve01
-    ports:
-      - "8080:8080"
-    networks:
-      - integrated-net
-
-  integrated-reserve-2:
-    image: ayeah77/integrated-reserve
-    container_name: integrated-reserve02
-    environment:
-      - SERVER_NAME=reserve02
-    ports:
-      - "8084:8080"
-    networks:
-      - integrated-net
-
-  integrated-reserve-3:
-    image: ayeah77/integrated-reserve
-    container_name: integrated-reserve03
-    environment:
-      - SERVER_NAME=reserve03
-    ports:
-      - "8085:8080"
-    networks:
-      - integrated-net
-
   nginx:
     image: nginx:latest
     container_name: integrated-nginx
@@ -88,9 +57,9 @@ services:
       - queueing-back-1
       - queueing-back-2
       - queueing-back-3
-      - integrated-reserve-1
-      - integrated-reserve-2
-      - integrated-reserve-3
+#      - integrated-reserve-1
+#      - integrated-reserve-2
+#      - integrated-reserve-3
     networks:
       - integrated-net
 

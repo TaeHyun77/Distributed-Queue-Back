@@ -1,6 +1,7 @@
 package com.example.integrated.queue.queue
 
 import com.example.integrated.redis.RedisLockUtil
+import com.example.integrated.util.ACTIVE_QUEUE_KEY
 import com.example.integrated.util.Loggable
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
@@ -11,6 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.stereotype.Component
 
 @Component
@@ -20,7 +22,8 @@ class QueueToAllowScheduler(
     @Value("\${move.to.allow.interval}")
     private var moveToAllowInterval: Long,
 
-    private val redisLockUtil: RedisLockUtil
+    private val redisLockUtil: RedisLockUtil,
+    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
 ): Loggable {
 
     /*
@@ -43,15 +46,20 @@ class QueueToAllowScheduler(
 
     val tickerScope = CoroutineScope(Dispatchers.Default)
     private val maxAllowedUsers = 3L
-    private val queueTypes = listOf("reserve_공연A", "reserve_공연B", "reserve_공연C")
 
     @PostConstruct
     fun schedulingStart() {
         tickerScope.launch {
-            tickerFlow(moveToAllowInterval, 30_000) // 30초 후 시작
+            tickerFlow(moveToAllowInterval, 10_000) // 10초 후 시작
                 .collect {
                     val result = redisLockUtil.acquireLockAndRun("scheduling_key") {
-                        queueTypes.forEach { queueType ->
+
+                        val activeQueues = reactiveRedisTemplate.opsForSet()
+                            .members(ACTIVE_QUEUE_KEY)
+                            .collectList()
+                            .block() ?: emptyList()
+
+                        activeQueues.forEach { queueType ->
                             try {
                                 val count = queueService.allowUser(queueType, maxAllowedUsers)
 

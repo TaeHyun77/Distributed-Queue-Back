@@ -1,6 +1,6 @@
 package com.example.integrated.queue.sse
 
-import com.example.integrated.queue.queue.QueueRequest
+import com.example.integrated.queue.queue.dto.QueueRequest
 import com.example.integrated.util.Loggable
 import kotlinx.coroutines.flow.Flow
 import org.springframework.http.MediaType
@@ -19,9 +19,10 @@ class SseEventController(
 
     @GetMapping("/stream", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
     fun streamQueue(
-        @RequestBody request: QueueRequest
+        @RequestParam queueType: String,
+        @RequestParam userId: String,
     ): Flow<ServerSentEvent<String>> {
 
-        return sseEventService.streamQueueEvents(request.queueType, request.userId)
+        return sseEventService.streamQueueEvents(queueType, userId)
     }
 }

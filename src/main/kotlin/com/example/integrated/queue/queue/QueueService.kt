@@ -1,8 +1,8 @@
 package com.example.integrated.queue.queue
 
-import com.example.integrated.queue.idempotency.Idempotency
-import com.example.integrated.queue.idempotency.IdempotencyRepository
+import com.example.integrated.queue.idempotency.IdempotencyService
 import com.example.integrated.queue.kafka.KafkaProducerService
+import com.example.integrated.queue.queue.dto.RegisterResult
 import com.example.integrated.redis.pubsub.RedisPublisher
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
@@ -14,20 +14,16 @@ import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.dao.DuplicateKeyException
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseCookie
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.reactive.ServerHttpResponse
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import java.security.NoSuchAlgorithmException
 import java.time.Duration
 import java.time.Instant
-import java.time.LocalDateTime
 import java.util.*
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -39,7 +35,7 @@ class QueueService (
 
     private val kafkaProducerService: KafkaProducerService,
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
-    private val idempotencyRepository: IdempotencyRepository,
+    private val idempotencyService: IdempotencyService,
 
     private val redisPublisher: RedisPublisher
 ): Loggable {
@@ -50,10 +46,9 @@ class QueueService (
         userId: String,
         idempotencyKey: String
     ): RegisterResult {
-
         try {
             // 멱등성 로직
-            if (isIdempotent(queueType, userId, idempotencyKey)) {
+            if (idempotencyService.checkAndSaveIdempotencyKey(queueType, userId, idempotencyKey)) {
                 return RegisterResult.ALREADY_IDEMPOTENCY_EXISTS
             }
 
@@ -64,41 +59,13 @@ class QueueService (
             kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())
 
             return RegisterResult.QUEUE_REGISTERED
+
         } catch (e: ReserveException) {
             log.error{ "대기열 등록 중 에러 발생 - ${e.message}" }
             throw e
         } catch (e: Exception) {
             log.error{ "대기열 등록 중 알 수 없는 에러 발생 - ${e.message}" }
             throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.FAIL_TO_REGISTER)
-        }
-    }
-
-    /** 멱등 로직 확인
-     * 키 값으로 조회하여 있으면 false 반환하는 방법은 동시성 문제가 발생할 수 있으므로 아래와 같이 설정
-     * expiresAt을 설정하여 특정 기간마다 삭제하여 정리하도록 함
-     * */
-    @Transactional
-    suspend fun isIdempotent(
-        queueType: String,
-        userId: String,
-        idempotencyKey: String
-    ): Boolean {
-
-        val now = LocalDateTime.now()
-
-        val entity = Idempotency(
-            idempotencyKey = idempotencyKey,
-            userId = userId,
-            queueType = queueType,
-            expiresAt = now.plusMinutes(5)
-        )
-
-        return try {
-            idempotencyRepository.save(entity)
-            false
-        } catch (e: DuplicateKeyException) {
-            log.info { "중복된 요청입니다 - ${entity.idempotencyKey}" }
-            true // 이미 처리된 요청
         }
     }
 
@@ -122,7 +89,7 @@ class QueueService (
         }
     }
 
-    /**
+    /*
      * 대기열 or 참가열에서 사용자 순위 조회
      * 존재하지 않는다면 -1L 반환, 존재한다면 사용자의 순위 반환
      * */
@@ -133,7 +100,7 @@ class QueueService (
     ): Long {
 
         val keyType = if (queueCategory == "wait") WAIT_QUEUE else ALLOW_QUEUE
-        val queueKey = queueType + keyType // "reserve_공연A:user-queue:allow"와 같은 형태
+        val queueKey = queueType + keyType
 
         val rank = reactiveRedisTemplate.opsForZSet()
             .rank(queueKey, userId)
@@ -142,15 +109,15 @@ class QueueService (
             ?: -1L
 
         if (rank < 0) {
-            log.info { "[$queueCategory] $userId 님이 존재하지 않습니다." }
+            log.info { "[$queueCategory] rank : $rank , $userId 님이 존재하지 않습니다." }
         } else {
-            log.info { "[$queueCategory] $userId 님의 현재 순위 $rank" }
+            log.info { "[$queueCategory] rank : $rank , $userId 님의 현재 순위 $rank" }
         }
 
         return rank
     }
 
-    /**
+    /*
      * 대기열에서 사용자 삭제
      * */
     suspend fun cancelUser(
@@ -165,17 +132,16 @@ class QueueService (
                 else -> throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_QUEUE_CATEGORY)
             }
         } catch (e: Exception) {
-            log.error(" 대기열/참가열 삭제 중 에러 발생 - ${e.message}")
-
+            log.error {" 대기열/참가열 삭제 중 에러 발생 - ${e.message}"}
             throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.REDIS_OPERATION_FAILED)
         }
     }
 
-    /**
-    *  문제 상황 발생 가능성
+    /*
+    * 문제 상황 발생 가능성
     *
-    *  승격 로직이 wait에서 사용자를 삭제했을 때, 취소 요청이 오는 경우 대기열에는 사용자가 없기에 문제가 발생할 수 있음
-    *  이러한 타이밍으로 인한 경쟁 상태를 별도로 관리하여 문제를 해결
+    * 승격 로직이 wait에서 사용자를 삭제했을 때, 취소 요청이 오는 경우 대기열에는 사용자가 없기에 문제가 발생할 수 있음
+    * 이러한 타이밍으로 인한 경쟁 상태를 별도로 관리하여 문제를 해결
     * */
     suspend fun cancelWaitOrAllow(
         queueType: String,
@@ -189,8 +155,6 @@ class QueueService (
             .awaitSingle()
 
         if (isRemovedWait > 0) {
-            log.info { "$userId 님 대기열에서 삭제 완료" }
-
             redisPublisher.publish(CHANNEL_NAME, queueType)
             return true
         }
@@ -226,42 +190,18 @@ class QueueService (
     }
 
     /*
-    * 인증을 위한 토큰 생성
-    * */
-    fun generateAccessToken(
-        queueType: String,
-        userId: String
-    ): String {
-        try {
-            val mac = Mac.getInstance("HmacSHA256")
-            val keySpec = SecretKeySpec(validationKey.toByteArray(StandardCharsets.UTF_8), "HmacSHA256")
-            mac.init(keySpec)
-
-            val raw = "$queueType:$userId"
-            val digest = mac.doFinal(raw.toByteArray(StandardCharsets.UTF_8))
-
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
-
-        } catch (e: Exception) {
-            log.error(e) { "토큰 생성 중 에러 발생." }
-
-            throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.FAIL_TO_GENERATE_TOKEN)
-        }
-    }
-
-    /*
     * 토큰을 쿠키에 저장
     * */
-    fun sendCookie(
+    fun issueAccessTokenCookie(
         queueType: String,
         userId: String,
         response: ServerHttpResponse
     ): ResponseEntity<String> {
 
         val encodedName = URLEncoder.encode(userId, StandardCharsets.UTF_8)
-        val cookieName = "reserve_user-access-cookie_$encodedName"
+        val cookieName = "reserve-user-access-cookie-$encodedName"
 
-        val token = generateAccessToken(queueType, userId)
+        val token = createAccessToken(queueType, userId)
 
         val responseCookie = ResponseCookie.from(cookieName, token)
             .path("/")
@@ -274,9 +214,32 @@ class QueueService (
     }
 
     /*
+    * 인증을 위한 토큰 생성
+    * */
+    fun createAccessToken(
+        queueType: String,
+        userId: String
+    ): String {
+        try {
+            val mac = Mac.getInstance("HmacSHA256")
+            val keySpec = SecretKeySpec(validationKey.toByteArray(StandardCharsets.UTF_8), "HmacSHA256")
+            mac.init(keySpec)
+
+            val raw = "$queueType:$userId"
+            val digest = mac.doFinal(raw.toByteArray(StandardCharsets.UTF_8))
+
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+        } catch (e: Exception) {
+            log.error(e) { "토큰 생성 중 에러 발생." }
+
+            throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.FAIL_TO_GENERATE_TOKEN)
+        }
+    }
+
+    /*
     * 타겟 페이지에 접속하면 쿠키에 저장된 토큰과 비교하는 로직
     * */
-    suspend fun isAccessTokenValid(
+    suspend fun isAccessTokenValidation(
         queueType: String,
         userId: String,
         token: String
@@ -286,12 +249,14 @@ class QueueService (
             ?.let { expireAt ->
                 val now = Instant.now().epochSecond
                 val notExpired = now < expireAt
-                val tokenMatches = generateAccessToken(queueType, userId) == token
+                val tokenMatches = createAccessToken(queueType, userId) == token
 
                 notExpired && tokenMatches
             } ?: false
     }
 
+    // 대기열 -> 참가열 이동 로직
+    // Redis Lua Script로 “pop → add → TTL”을 하나의 원자 연산으로 묶는 방법으로 개선 고려
     suspend fun allowUser(
         queueType: String,
         count: Long
@@ -329,6 +294,7 @@ class QueueService (
         return poppedUsers.size
     }
 
+    // 입장 시간 생성 로직
     suspend fun generateScore(): Long {
         val timestampMicros = Instant.now().toEpochMilli() * 1000
 
@@ -340,17 +306,7 @@ class QueueService (
         return (timestampMicros shl 20) or seqMasked
     }
 
-    /*
-    * TTL 키 삭제 로직
-    * */
-    private suspend fun removeTtlKey(userId: String) {
-        val isRemove = reactiveRedisTemplate.opsForZSet()
-            .remove(TOKEN_TTL_INFO, userId)
-            .awaitSingle()
-
-        require(isRemove == 1L) {"TTL 키가 존재하지 않습니다"}
-    }
-
+    // TTL 생성 로직
     private suspend fun getTtlInfo(
         userId: String
     ): Double? {
@@ -359,5 +315,14 @@ class QueueService (
             .awaitSingleOrNull()
 
         return ttlInfo
+    }
+
+    // TTL 키 삭제 로직
+    private suspend fun removeTtlKey(userId: String) {
+        val isRemove = reactiveRedisTemplate.opsForZSet()
+            .remove(TOKEN_TTL_INFO, userId)
+            .awaitSingle()
+
+        require(isRemove == 1L) {"TTL 키가 존재하지 않습니다"}
     }
 }

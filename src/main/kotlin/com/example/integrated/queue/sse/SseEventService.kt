@@ -63,6 +63,9 @@ class SseEventService(
             } else {
                 val rank = queueService.searchUserRanking(queueType, userId,"wait")
 
+                log.info{"queueType : $queueType , userId : $userId"}
+                log.info { "sse rank : $rank" }
+
                 if (rank > 0) {
                     objectMapper.writeValueAsString(UpdateSseEvent(rank = rank))
                 } else {

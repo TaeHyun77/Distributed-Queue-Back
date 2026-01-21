@@ -1,8 +1,11 @@
 package com.example.integrated.queue.queue
 
+import com.example.integrated.queue.queue.dto.QueueRequest
+import com.example.integrated.queue.queue.dto.RegisterResult
 import com.example.integrated.util.Loggable
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
+import jakarta.servlet.http.HttpServletResponse
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -22,14 +25,18 @@ class QueueController (
 ): Loggable {
 
     // 대기열에 사용자 등록
-    @PostMapping("/register/{idempotencyKey}")
+    @PostMapping("/register")
     suspend fun registerUser(
         @RequestBody request: QueueRequest,
-        @PathVariable("idempotencyKey") idempotencyKey: String
+        header: ServerHttpRequest
     ): RegisterResult {
 
         val queueType = request.queueType
         val userId = request.userId
+
+        val idempotencyKey = header.headers["idempotency-key"]
+            ?.firstOrNull()
+            ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)
 
         log.info { "queue-server-name: $serverName" }
         log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , idempotencyKey: $idempotencyKey" }
@@ -37,24 +44,37 @@ class QueueController (
         return queueService.registerUserToWaitQueue(queueType, userId, idempotencyKey)
     }
 
+    // 대기열 or 허용열에서의 사용자 순위 반환
+    @GetMapping("/get/rank/{queueCategory}")
+    suspend fun getUserRank(
+        @RequestParam queueType: String,
+        @RequestParam userId: String,
+        @PathVariable("queueCategory") queueCategory: String
+    ): Long {
+        return queueService.searchUserRanking(queueType, userId, queueCategory)
+    }
+
     // 쿠키에 토큰 전달
-    @GetMapping("/createCookie")
-    suspend fun sendCookie(
-        @RequestBody request: QueueRequest,
+    @GetMapping("/create/cookie")
+    fun issueAccessTokenCookie(
+        @RequestParam queueType: String,
+        @RequestParam userId: String,
         response: ServerHttpResponse
-    ): ResponseEntity<String> = queueService.sendCookie(request.queueType, request.userId, response)
+    ): ResponseEntity<String> = queueService.issueAccessTokenCookie(queueType, userId, response)
 
     // 토큰의 유효성 판단
-    @GetMapping("/isValidateToken/{token}")
+    @PostMapping("/isValidateToken/{token}")
     suspend fun isAccessTokenValid(
         @RequestBody request: QueueRequest,
         @PathVariable("token") token: String
-    ): Boolean = queueService.isAccessTokenValid(request.queueType, request.userId, token)
+    ): Boolean =
+        queueService.isAccessTokenValidation(request.queueType, request.userId, token)
 
     // 대기열 or 참가열 등록 취소
-    @DeleteMapping("/cancel/{queueCategory}")
+    @PostMapping("/cancel/{queueCategory}")
     suspend fun cancelReserve(
         @RequestBody request: QueueRequest,
         @PathVariable("queueCategory") queueCategory: String
-    ): Boolean = queueService.cancelUser(request.queueType, request.userId, queueCategory)
+    ): Boolean =
+        queueService.cancelUser(request.queueType, request.userId, queueCategory)
 }
