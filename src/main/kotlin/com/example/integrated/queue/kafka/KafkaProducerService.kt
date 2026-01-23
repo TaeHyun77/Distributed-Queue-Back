@@ -3,6 +3,7 @@ package com.example.integrated.queue.kafka
 import com.example.integrated.util.Loggable
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.ObjectMapper
+import kotlinx.coroutines.future.await
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
@@ -17,24 +18,24 @@ class KafkaProducerService (
     private val objectMapper: ObjectMapper
 ): Loggable {
 
-    fun sendMessage(
+    suspend fun sendMessage(
         queueType: String,
         userId: String,
         timeStamp: Double
-    ) {
+    ): Boolean {
         try {
             val message = KafkaMessage(queueType, userId, timeStamp)
             val jsonMessage = objectMapper.writeValueAsString(message)
 
-            kafkaTemplate.send(queueEventTopicName, jsonMessage).whenComplete { _, ex ->
-                ex?.let {
-                    log.error { "Kafka 메시지 전송 실패 - Topic: $queueEventTopicName" }
-                } ?: log.info { "Kafka 메시지 전송 성공 - Topic: $queueEventTopicName" }
-            }
+            kafkaTemplate.send(queueEventTopicName, jsonMessage)
+                .await()
 
-        } catch (e: JsonProcessingException) {
-            log.error {"kafka produce 직렬화 실패"}
-            throw e
+            log.info { "Kafka produce 성공" }
+            return true
+
+        } catch (e: Exception) {
+            log.error(e) { "Kafka produce 실패" }
+            return false
         }
     }
 }

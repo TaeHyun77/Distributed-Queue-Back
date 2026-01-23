@@ -46,7 +46,7 @@ class KafkaConsumerService(
 
             redisPublisher.publish(CHANNEL_NAME, queueType)
         } else {
-            log.warn {"consume - ZSet 삽입 실패 ⇒ userId: queueType: ${consumeMessage.queueType}, ${consumeMessage.userId}"}
+            log.warn {"consume - 대기열 등록 실패 ⇒ userId: queueType: ${consumeMessage.queueType}, ${consumeMessage.userId}"}
         }
     }
 }
