@@ -17,5 +17,7 @@ enum class ErrorCode (
 
     REDIS_OPERATION_FAILED("REDIS_OPERATION_FAILED", "Redis 작업 중 실패"),
 
-    FAIL_TO_GENERATE_TOKEN("FAIL_TO_GENERATE_TOKEN", "토큰 생성 중 에러 발생")
+    FAIL_TO_GENERATE_TOKEN("FAIL_TO_GENERATE_TOKEN", "토큰 생성 중 에러 발생"),
+
+    KAFKA_PRODUCE_FAILED("KAFKA_PRODUCE_FAILED", "Kafka Produce 실패")
 }

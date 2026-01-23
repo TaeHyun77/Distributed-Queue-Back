@@ -49,16 +49,20 @@ class QueueService (
         try {
             // 멱등성 로직
             if (idempotencyService.checkAndSaveIdempotencyKey(queueType, userId, idempotencyKey)) {
-                return RegisterResult.ALREADY_IDEMPOTENCY_EXISTS
+                return RegisterResult.QUEUE_REGISTER_FAILED
             }
 
             // redis 대기열 또는 참가열에 해당 사용자가 존재하는지 확인
             validateUserNotQueued(queueType, userId)
 
             val timestamp: Long = generateScore()
-            kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())
+            val isKafkaProduce = kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())
 
-            return RegisterResult.QUEUE_REGISTERED
+            if (!isKafkaProduce) {
+                throw ReserveException(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.KAFKA_PRODUCE_FAILED)
+            }
+
+            return RegisterResult.QUEUE_REGISTER_SUCCESS
 
         } catch (e: ReserveException) {
             log.error{ "대기열 등록 중 에러 발생 - ${e.message}" }
