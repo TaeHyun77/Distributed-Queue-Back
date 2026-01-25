@@ -1,5 +1,6 @@
 package com.example.integrated.queue.kafka
 
+import com.example.integrated.queue.queue.QueueToAllowScheduler
 import com.example.integrated.redis.pubsub.RedisPublisher
 import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service
 class KafkaConsumerService(
     private val objectMapper: ObjectMapper,
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
+    private val queueToAllowScheduler: QueueToAllowScheduler,
     private val redisPublisher: RedisPublisher
 ): Loggable {
 
@@ -39,11 +41,7 @@ class KafkaConsumerService(
             .awaitSingle()
 
         if (isInserted) {
-            // 활성화되는 대기열
-            reactiveRedisTemplate.opsForSet()
-                .add("queue:active", queueType)
-                .awaitSingle()
-
+            queueToAllowScheduler.addActiveQueue(queueType) // 활성화되는 대기열
             redisPublisher.publish(CHANNEL_NAME, queueType)
         } else {
             log.warn {"consume - 대기열 등록 실패 ⇒ userId: queueType: ${consumeMessage.queueType}, ${consumeMessage.userId}"}
