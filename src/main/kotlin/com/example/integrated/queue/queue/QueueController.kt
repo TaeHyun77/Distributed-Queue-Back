@@ -44,14 +44,13 @@ class QueueController (
         return queueService.registerUserToWaitQueue(queueType, userId, idempotencyKey)
     }
 
-    // 대기열 or 허용열에서의 사용자 순위 반환
-    @GetMapping("/get/rank/{queueCategory}")
+    // 대기열에서의 사용자 순위 반환
+    @GetMapping("/get/rank")
     suspend fun getUserRank(
         @RequestParam queueType: String,
         @RequestParam userId: String,
-        @PathVariable("queueCategory") queueCategory: String
     ): Long {
-        return queueService.searchUserRanking(queueType, userId, queueCategory)
+        return queueService.getUserRank(queueType, userId)
     }
 
     // 쿠키에 토큰 전달
@@ -68,13 +67,12 @@ class QueueController (
         @RequestBody request: QueueRequest,
         @PathVariable("token") token: String
     ): Boolean =
-        queueService.isAccessTokenValidation(request.queueType, request.userId, token)
+        queueService.isAllowTokenValid(request.queueType, request.userId, token)
 
     // 대기열 or 참가열 등록 취소
-    @PostMapping("/cancel/{queueCategory}")
+    @PostMapping("/cancel")
     suspend fun cancelReserve(
         @RequestBody request: QueueRequest,
-        @PathVariable("queueCategory") queueCategory: String
     ): Boolean =
-        queueService.cancelUser(request.queueType, request.userId, queueCategory)
+        queueService.cancelUser(request.queueType, request.userId)
 }
