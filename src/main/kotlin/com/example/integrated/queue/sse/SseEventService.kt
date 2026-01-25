@@ -6,7 +6,6 @@ import com.example.integrated.queue.queue.QueueService
 import com.example.integrated.queue.sse.event.ErrorSseEvent
 import com.example.integrated.queue.sse.event.UpdateSseEvent
 import com.fasterxml.jackson.databind.ObjectMapper
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.catch
@@ -52,19 +51,16 @@ class SseEventService(
         userId: String,
     ): String {
         return try {
-            val allowed = queueService.searchUserRanking(queueType, userId,"allow")
+            val allowed = queueService.isAllowTokenExpired(queueType, userId)
 
             // 참가열에 존재한다면
-            if (allowed != -1L) {
+            if (allowed) {
                 objectMapper.writeValueAsString(
                     ConfirmSseEvent(userId = userId)
                 )
             // 대기열에 존재한다면
             } else {
-                val rank = queueService.searchUserRanking(queueType, userId,"wait")
-
-                log.info{"queueType : $queueType , userId : $userId"}
-                log.info { "sse rank : $rank" }
+                val rank = queueService.getUserRank(queueType, userId)
 
                 if (rank > 0) {
                     objectMapper.writeValueAsString(UpdateSseEvent(rank = rank))
