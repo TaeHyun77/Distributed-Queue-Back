@@ -11,6 +11,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.reactor.awaitSingle
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.stereotype.Component
@@ -38,7 +40,13 @@ class QueueToAllowScheduler(
         delay(initialDelay)
 
         while (true) {
-            emit(Unit)
+            val activeQueues = reactiveRedisTemplate.opsForSet()
+                .members(ACTIVE_QUEUE_KEY)
+                .collectList()
+                .awaitSingleOrNull()
+                ?.takeIf { it.isNotEmpty() } ?: emptyList()
+
+            if (activeQueues.isNotEmpty()) emit(activeQueues)
 
             delay(period)
         }
@@ -50,20 +58,15 @@ class QueueToAllowScheduler(
     @PostConstruct
     fun schedulingStart() {
         tickerScope.launch {
-            tickerFlow(moveToAllowInterval, 10_000) // 10초 후 시작
-                .collect {
+            tickerFlow(moveToAllowInterval, 10_000)
+                .collect { activeQueues ->
                     val result = redisLockUtil.acquireLockAndRun("scheduling_key") {
-
-                        val activeQueues = reactiveRedisTemplate.opsForSet()
-                            .members(ACTIVE_QUEUE_KEY)
-                            .collectList()
-                            .block() ?: emptyList()
-
                         activeQueues.forEach { queueType ->
                             try {
                                 val count = queueService.allowUser(queueType, maxAllowedUsers)
-
                                 log.info { "$queueType 허용열로 이동한 사용자 : $count" }
+
+                                if (count == 0) removeActiveQueue(queueType)
                             } catch (e: Exception) {
                                 log.error(e) { "스케줄링 중 예외 발생 - ${e.message}" }
                             }
@@ -75,6 +78,18 @@ class QueueToAllowScheduler(
                     }
                 }
         }
+    }
+
+    suspend fun addActiveQueue(queueType: String) {
+        reactiveRedisTemplate.opsForSet()
+            .add(ACTIVE_QUEUE_KEY, queueType)
+            .awaitSingle()
+    }
+
+    suspend fun removeActiveQueue(queueType: String) {
+        reactiveRedisTemplate.opsForSet()
+            .remove(ACTIVE_QUEUE_KEY, queueType)
+            .awaitSingle()
     }
 
     @PreDestroy
