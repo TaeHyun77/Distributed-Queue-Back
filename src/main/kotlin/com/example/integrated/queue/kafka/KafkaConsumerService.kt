@@ -1,14 +1,12 @@
 package com.example.integrated.queue.kafka
 
-import com.example.integrated.queue.queue.QueueToAllowScheduler
+import com.example.integrated.queue.queue.QueueService
+import com.example.integrated.queue.queue.QueueToAllowTrigger
 import com.example.integrated.redis.pubsub.RedisPublisher
 import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
-import com.example.integrated.util.WAIT_QUEUE
 import com.example.integrated.util.readValueFromJson
 import com.fasterxml.jackson.databind.ObjectMapper
-import kotlinx.coroutines.reactor.awaitSingle
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Service
@@ -16,8 +14,8 @@ import org.springframework.stereotype.Service
 @Service
 class KafkaConsumerService(
     private val objectMapper: ObjectMapper,
-    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
-    private val queueToAllowScheduler: QueueToAllowScheduler,
+    private val queueService: QueueService,
+    private val queueToAllowTrigger: QueueToAllowTrigger,
     private val redisPublisher: RedisPublisher
 ): Loggable {
 
@@ -33,18 +31,12 @@ class KafkaConsumerService(
         val userId = consumeMessage.userId
         val timeStamp = consumeMessage.timeStamp
 
-        val waitKey = queueType + WAIT_QUEUE
+        val activated = queueService.enqueueAndActivateIfFirst(queueType, userId, timeStamp)
 
-        // 삽입 성공 시 true, 실패 시 false 반환
-        val isInserted = reactiveRedisTemplate.opsForZSet()
-            .add(waitKey,userId, timeStamp)
-            .awaitSingle()
-
-        if (isInserted) {
-            queueToAllowScheduler.addActiveQueue(queueType) // 활성화되는 대기열
-            redisPublisher.publish(CHANNEL_NAME, queueType)
-        } else {
-            log.warn {"consume - 대기열 등록 실패 ⇒ userId: queueType: ${consumeMessage.queueType}, ${consumeMessage.userId}"}
+        if (activated) {
+            queueToAllowTrigger.addActiveQueue(queueType)
         }
+
+        redisPublisher.publish(CHANNEL_NAME, queueType)
     }
 }

@@ -49,8 +49,9 @@ class QueueController (
     suspend fun getUserRank(
         @RequestParam queueType: String,
         @RequestParam userId: String,
+        @PathVariable("queueCategory") queueCategory: String
     ): Long {
-        return queueService.getUserRank(queueType, userId)
+        return queueService.getUserRank(queueType, userId, queueCategory)
     }
 
     // 쿠키에 토큰 전달
