@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.awaitSingle
+import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.http.HttpStatus
@@ -79,16 +80,16 @@ class QueueService (
     * */
     suspend fun validateUserNotInQueue(
         queueType: String,
-        userId: String
+        userId: String,
     ) = coroutineScope {
 
-        val waitRankDeferred = async { getUserRank(queueType, userId) }
-        val isAllowedDeferred = async { isAllowTokenExpired(queueType, userId) }
+        val waitRankDeferred = async { getUserRank(queueType, userId, "wait") }
+        val isAllowedDeferred = async { getUserRank(queueType, userId, "allow") }
 
         val waitRank: Long = waitRankDeferred.await()
-        val isAllowed: Boolean = isAllowedDeferred.await()
+        val isAllowed: Long = isAllowedDeferred.await()
 
-        if (waitRank >= 0L || isAllowed) {
+        if (waitRank >= 0L || isAllowed >= 0L) {
             throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER_IN_QUEUE)
         }
     }
@@ -99,21 +100,17 @@ class QueueService (
      * */
     suspend fun getUserRank(
         queueType: String,
-        userId: String
+        userId: String,
+        queueCategory: String
     ): Long {
-        val key = queueType + WAIT_QUEUE
+
+        val key = if (queueCategory == "wait") "$queueType$WAIT_QUEUE" else "$queueType$ALLOW_QUEUE"
 
         val rank = reactiveRedisTemplate.opsForZSet()
             .rank(key, userId)
             .awaitFirstOrNull()
             ?.let { it + 1L }
             ?: -1L
-
-        if (rank < 0) {
-            log.info { "$userId 님이 존재하지 않습니다." }
-        } else {
-            log.info { "$userId 님의 현재 순위 $rank" }
-        }
 
         return rank
     }
@@ -209,11 +206,12 @@ class QueueService (
 
         poppedUsers.forEach { user ->
             val userId = user.value.toString()
-            val key = "$queueType:allow:$userId"
+            val expireAt = System.currentTimeMillis() + Duration.ofMinutes(10).toMillis()
+            val key = "$queueType$ALLOW_QUEUE"
 
             // 참가열에 사용자 이동
-            reactiveRedisTemplate.opsForValue()
-                .set(key, "1", Duration.ofMinutes(10))
+            reactiveRedisTemplate.opsForZSet()
+                .add(key, userId, expireAt.toDouble())
                 .awaitSingle()
         }
 
@@ -253,11 +251,15 @@ class QueueService (
         queueType: String,
         userId: String
     ): Boolean {
-        val key = "$queueType:allow:$userId"
+        val key = "$queueType$ALLOW_QUEUE"
 
-        return reactiveRedisTemplate
-            .hasKey(key)
-            .awaitSingle()
+        val score = reactiveRedisTemplate.opsForZSet()
+            .score(key, userId)
+            .awaitSingleOrNull()
+            ?: return true // 존재하지 않으면 만료로 간주
+
+        val now = System.currentTimeMillis().toDouble()
+        return score < now
     }
 
     // 토큰의 유효성 판별 로직
@@ -267,5 +269,35 @@ class QueueService (
         token: String
     ): Boolean {
         return createAccessToken(queueType, userId) == token
+    }
+
+    suspend fun enqueueAndActivateIfFirst(
+        queueType: String,
+        userId: String,
+        timeStamp: Double
+    ): Boolean {
+        val waitKey = queueType + WAIT_QUEUE
+        val activeKey = "queue:active:$queueType"
+
+        val added = reactiveRedisTemplate.opsForZSet()
+            .add(waitKey, userId, timeStamp)
+            .awaitSingle()
+
+        if (!added) return false
+
+        // 최초 활성화 시도
+        val activated = reactiveRedisTemplate.opsForValue()
+            .setIfAbsent(activeKey, "1")
+            .awaitSingle()
+
+        return activated
+    }
+
+    suspend fun getAllowQueueSize(queueType: String): Long {
+        val key = "$queueType$ALLOW_QUEUE"
+
+        return reactiveRedisTemplate.opsForZSet()
+            .size(key)
+            .awaitSingle()
     }
 }

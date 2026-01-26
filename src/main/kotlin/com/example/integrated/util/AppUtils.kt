@@ -9,9 +9,8 @@ import kotlin.coroutines.coroutineContext
 
 const val WAIT_QUEUE: String = ":user-queue:wait"
 const val ALLOW_QUEUE: String = ":user-queue:allow"
-const val TOKEN_TTL_INFO: String = "reserve:USERS-TTL:INFO"
 const val CHANNEL_NAME = "queueing_system"
-const val ACTIVE_QUEUE_KEY = "queue:active"
+const val ACTIVE_QUEUE_KEY = "active-allow-queue"
 
 
 suspend fun logScope(name: String, scope: CoroutineScope? = null) {
