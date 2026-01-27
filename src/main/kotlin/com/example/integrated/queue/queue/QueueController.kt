@@ -54,6 +54,7 @@ class QueueController (
         return queueService.getUserRank(queueType, userId, queueCategory)
     }
 
+
     // 쿠키에 토큰 전달
     @GetMapping("/create/cookie")
     fun issueAccessTokenCookie(

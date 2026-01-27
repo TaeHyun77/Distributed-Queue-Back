@@ -1,6 +1,8 @@
 package com.example.integrated.queue.kafka.config
 
+import com.example.integrated.util.Loggable
 import org.apache.kafka.clients.consumer.ConsumerConfig
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -9,10 +11,18 @@ import org.springframework.kafka.annotation.EnableKafka
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
+import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer
+import org.springframework.kafka.listener.DefaultErrorHandler
+import org.springframework.kafka.listener.RetryListener
+import org.springframework.util.backoff.FixedBackOff
 
 @EnableKafka
 @Configuration
-class KafkaConsumerConfig(private val env: Environment) {
+class KafkaConsumerConfig(
+    private val env: Environment,
+    private val kafkaTemplate: KafkaTemplate<String, String>
+): Loggable {
 
     @Bean
     fun consumerConfig(): Map<String, Any> {
@@ -45,6 +55,32 @@ class KafkaConsumerConfig(private val env: Environment) {
     fun kafkaListenerContainerFactory(): ConcurrentKafkaListenerContainerFactory<String, String> {
         return ConcurrentKafkaListenerContainerFactory<String, String>().apply {
             consumerFactory = consumerFactory()
+
+            setCommonErrorHandler(kafkaErrorHandler())
         }
+    }
+
+    @Bean
+    fun kafkaErrorHandler(): DefaultErrorHandler {
+        val handler = DefaultErrorHandler(
+            DeadLetterPublishingRecoverer(kafkaTemplate),
+            FixedBackOff(3000L, 3)
+        )
+
+        handler.setRetryListeners(
+            { record, ex, deliveryAttempt ->
+                log.warn {
+                    """
+                Kafka consume retry
+                topic=${record.topic()}
+                partition=${record.partition()}
+                offset=${record.offset()}
+                error=${ex.message}
+                """.trimIndent()
+                }
+            }
+        )
+
+        return handler
     }
 }
