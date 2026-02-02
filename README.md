@@ -40,8 +40,6 @@ Etc : SSE, Redis pub/sub<br><br>
 
 <p align="center"><img width="625" height="188" alt="Image" src="https://github.com/user-attachments/assets/0205be3b-61b1-4284-a1da-17e9aecd89a4" /><br><br>
 
-**단일 서버에서의 대기열 등록 과정**
-
 😿 단일 서버 리포지토리를 확인해주세요
 
 <br><br>
