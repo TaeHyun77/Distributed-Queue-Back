@@ -1,6 +1,6 @@
 package com.example.integrated.queue.queue
 
-import com.example.integrated.queue.idempotency.IdempotencyService
+import com.example.integrated.queue.duplication.DuplicationCheckService
 import com.example.integrated.queue.kafka.KafkaProducerService
 import com.example.integrated.queue.queue.dto.RegisterResult
 import com.example.integrated.redis.pubsub.RedisPublisher
@@ -34,7 +34,7 @@ class QueueService (
 
     private val kafkaProducerService: KafkaProducerService,
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
-    private val idempotencyService: IdempotencyService,
+    private val duplicationCheckService: DuplicationCheckService,
 
     private val redisPublisher: RedisPublisher
 ): Loggable {
@@ -43,11 +43,11 @@ class QueueService (
     suspend fun registerUserToWaitQueue(
         queueType: String,
         userId: String,
-        idempotencyKey: String
+        requestKey: String
     ): RegisterResult {
         try {
-            // 멱등성 로직
-            if (idempotencyService.checkAndSaveIdempotencyKey(queueType, userId, idempotencyKey)) {
+            // 중복 요청 확인
+            if (duplicationCheckService.isDuplicate(queueType, userId, requestKey)) {
                 return RegisterResult.DUPLICATE_REQUEST
             }
 

@@ -1,14 +1,18 @@
-package com.example.integrated.queue.idempotency
+package com.example.integrated.queue.duplication
 
 import com.example.integrated.BaseTime
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 import java.time.LocalDateTime
 
-@Table("queue_idempotency")
-class Idempotency (
+@Table("duplication_check")
+class DuplicationCheck (
 
-    val idempotencyKey: String,
+    @Id
+    val id: Long? = null,
+
+    // Database Level 에서 idempotencyKey의 유니크 제약 조건을 설정
+    val requestKey: String,
 
     val userId: String,
 

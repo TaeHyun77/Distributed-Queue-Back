@@ -34,14 +34,14 @@ class QueueController (
         val queueType = request.queueType
         val userId = request.userId
 
-        val idempotencyKey = header.headers["idempotency-key"]
+        val requestKey = header.headers["request-key"]
             ?.firstOrNull()
             ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)
 
         log.info { "queue-server-name: $serverName" }
-        log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , idempotencyKey: $idempotencyKey" }
+        log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , requestKey: $requestKey" }
 
-        return queueService.registerUserToWaitQueue(queueType, userId, idempotencyKey)
+        return queueService.registerUserToWaitQueue(queueType, userId, requestKey)
     }
 
     // 대기열에서의 사용자 순위 반환
