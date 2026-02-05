@@ -21,8 +21,15 @@ class KafkaProducerConfig(
             ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG to StringSerializer::class.java,
 
             // 안정성 설정
-            ProducerConfig.ACKS_CONFIG to "all", // 모든 ISR 브로커 확인 후 ACK
-            ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG to true, // 중복 방지 + 순서 보장
+
+            // 모든 브로커가 produce 성공 여부 확인 후 ACK
+            // 이를 통해 produce가 성공적으로 되었는지 확인 가능
+            ProducerConfig.ACKS_CONFIG to "all",
+
+            // 브로커가 메세지를 받아서 저장은 했지만, ack 응답을 내려주지 못한 경우 중복 produce가 발생할 수 있음
+            // 따라서 ENABLE_IDEMPOTENCE을 true로 하여 메세지 중복 producing을 방지
+            ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG to true,
+
             ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION to 1, // 순서 보장
             ProducerConfig.RETRIES_CONFIG to Int.MAX_VALUE, // 무제한 재시도
             ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG to 120000, // 재시도 포함 전송 타임아웃 (기본 2분)

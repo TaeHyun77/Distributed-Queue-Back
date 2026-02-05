@@ -7,8 +7,14 @@ import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
 import com.example.integrated.util.readValueFromJson
 import com.fasterxml.jackson.databind.ObjectMapper
-import kotlinx.coroutines.runBlocking
+import org.springframework.kafka.annotation.DltHandler
 import org.springframework.kafka.annotation.KafkaListener
+import org.springframework.kafka.annotation.RetryableTopic
+import org.springframework.kafka.retrytopic.RetryTopicHeaders
+import org.springframework.kafka.retrytopic.SameIntervalTopicReuseStrategy
+import org.springframework.kafka.support.KafkaHeaders
+import org.springframework.messaging.handler.annotation.Header
+import org.springframework.retry.annotation.Backoff
 import org.springframework.stereotype.Service
 
 @Service
@@ -23,14 +29,24 @@ class KafkaConsumerService(
     * "queueing-system" 토픽으로 produce 된 이벤트를 consume
     * group-id를 지정하지 않으면, spring.kafka.consumer.group-id 설정 값으로 자동 적용됨
     * */
-    @KafkaListener(topics = ["\${queue.event.topic.name}"])
-    fun consumeMessage(message: String) {
-        runBlocking {
-            handle(message)
-        }
+    @KafkaListener(
+        topics = ["\${queue.event.topic.name}"],
+        containerFactory = "kafkaListenerContainerFactory"
+    )
+    @RetryableTopic(
+        attempts = "4",
+        backoff = Backoff(delay = 3000),
+        sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.SINGLE_TOPIC, // 이를 통해 재시도 토픽을 한 개만 생성하도록 함
+        autoCreateTopics = "true", // retry 토픽을 자동으로 생성
+    )
+    suspend fun consumeMessage(
+        message: String,
+        @Header(RetryTopicHeaders.DEFAULT_HEADER_ATTEMPTS) attempt: Int
+    ) {
+        handleMessage(message, attempt)
     }
 
-    suspend fun handle(message: String) {
+    private suspend fun handleMessage(message: String, attempt: Int) {
         val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
 
         val activated = queueService.enqueueAndActivateIfFirst(
@@ -44,5 +60,30 @@ class KafkaConsumerService(
         }
 
         redisPublisher.publish(CHANNEL_NAME, consumeMessage.queueType)
+    }
+
+    @DltHandler
+    fun handleDltMessage(
+        message: String,
+        @Header(KafkaHeaders.RECEIVED_TOPIC) dltTopicName: String,
+        @Header(KafkaHeaders.EXCEPTION_MESSAGE) errorMessage: String?,
+        @Header(KafkaHeaders.EXCEPTION_STACKTRACE) stackTrace: String?
+    ) {
+        try {
+            val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
+
+            log.error {
+                """
+                DLT Topic: $dltTopicName
+                Queue Type: ${consumeMessage.queueType}
+                User ID: ${consumeMessage.userId}
+                Timestamp: ${consumeMessage.timeStamp}
+                Error Message: $errorMessage
+                """.trimIndent()
+            }
+
+        } catch (e: Exception) {
+            log.error(e) { "DLT 메시지 처리 중 에러 발생. 원본 메시지: $message" }
+        }
     }
 }
