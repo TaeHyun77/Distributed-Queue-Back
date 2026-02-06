@@ -54,6 +54,7 @@ class QueueToAllowScheduler(
     }
 
     suspend fun addActiveQueue(queueType: String) {
+
         reactiveRedisTemplate.opsForSet()
             .add(ACTIVE_QUEUE_KEY, queueType)
             .awaitSingle()
