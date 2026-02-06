@@ -33,20 +33,20 @@ class KafkaConsumerService(
         topics = ["\${queue.event.topic.name}"],
         containerFactory = "kafkaListenerContainerFactory"
     )
-    @RetryableTopic(
+    @RetryableTopic( // 4번까지는 재시도 후 그래도 실패한다면 DLT 토픽으로 작업을 이동
         attempts = "4",
         backoff = Backoff(delay = 3000),
         sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.SINGLE_TOPIC, // 이를 통해 재시도 토픽을 한 개만 생성하도록 함
-        autoCreateTopics = "true", // retry 토픽을 자동으로 생성
+        autoCreateTopics = "true", // retry 토픽을 자동으로 생성, 이 설정이 없다면 토픽을 미리 생성해둬야 함
     )
     suspend fun consumeMessage(
         message: String,
         @Header(RetryTopicHeaders.DEFAULT_HEADER_ATTEMPTS) attempt: Int
     ) {
-        handleMessage(message, attempt)
+        handleMessage(message)
     }
 
-    private suspend fun handleMessage(message: String, attempt: Int) {
+    private suspend fun handleMessage(message: String) {
         val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
 
         val activated = queueService.enqueueAndActivateIfFirst(
@@ -67,7 +67,6 @@ class KafkaConsumerService(
         message: String,
         @Header(KafkaHeaders.RECEIVED_TOPIC) dltTopicName: String,
         @Header(KafkaHeaders.EXCEPTION_MESSAGE) errorMessage: String?,
-        @Header(KafkaHeaders.EXCEPTION_STACKTRACE) stackTrace: String?
     ) {
         try {
             val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
@@ -83,7 +82,7 @@ class KafkaConsumerService(
             }
 
         } catch (e: Exception) {
-            log.error(e) { "DLT 메시지 처리 중 에러 발생. 원본 메시지: $message" }
+            log.error(e) { "DLT 메시지 처리 중 에러 발생" }
         }
     }
 }
