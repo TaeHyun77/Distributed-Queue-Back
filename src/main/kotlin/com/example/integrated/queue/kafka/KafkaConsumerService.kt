@@ -3,15 +3,18 @@ package com.example.integrated.queue.kafka
 import com.example.integrated.queue.queue.QueueService
 import com.example.integrated.queue.queue.QueueToAllowScheduler
 import com.example.integrated.redis.pubsub.RedisPublisher
+import com.example.integrated.reserveException.ErrorCode
+import com.example.integrated.reserveException.ReserveException
 import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
 import com.example.integrated.util.readValueFromJson
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.springframework.http.HttpStatus
 import org.springframework.kafka.annotation.DltHandler
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.annotation.RetryableTopic
-import org.springframework.kafka.retrytopic.RetryTopicHeaders
 import org.springframework.kafka.retrytopic.SameIntervalTopicReuseStrategy
+import org.springframework.kafka.support.Acknowledgment
 import org.springframework.kafka.support.KafkaHeaders
 import org.springframework.messaging.handler.annotation.Header
 import org.springframework.retry.annotation.Backoff
@@ -34,16 +37,17 @@ class KafkaConsumerService(
         containerFactory = "kafkaListenerContainerFactory"
     )
     @RetryableTopic( // 4번까지는 재시도 후 그래도 실패한다면 DLT 토픽으로 작업을 이동
-        attempts = "4",
-        backoff = Backoff(delay = 3000),
+        attempts = "3",
+        backoff = Backoff(delay = 1000),
         sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.SINGLE_TOPIC, // 이를 통해 재시도 토픽을 한 개만 생성하도록 함
         autoCreateTopics = "true", // retry 토픽을 자동으로 생성, 이 설정이 없다면 토픽을 미리 생성해둬야 함
     )
     suspend fun consumeMessage(
         message: String,
-        @Header(RetryTopicHeaders.DEFAULT_HEADER_ATTEMPTS) attempt: Int
+        acknowledgment: Acknowledgment
     ) {
         handleMessage(message)
+        acknowledgment.acknowledge()
     }
 
     private suspend fun handleMessage(message: String) {
@@ -64,23 +68,13 @@ class KafkaConsumerService(
 
     @DltHandler
     fun handleDltMessage(
-        message: String,
         @Header(KafkaHeaders.RECEIVED_TOPIC) dltTopicName: String,
         @Header(KafkaHeaders.EXCEPTION_MESSAGE) errorMessage: String?,
     ) {
         try {
-            val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
-
             log.error {
-                """
-                DLT Topic: $dltTopicName
-                Queue Type: ${consumeMessage.queueType}
-                User ID: ${consumeMessage.userId}
-                Timestamp: ${consumeMessage.timeStamp}
-                Error Message: $errorMessage
-                """.trimIndent()
+                "DLT 토픽에 메세지 저장 , DLT Topic: $dltTopicName , Error Message: $errorMessage"
             }
-
         } catch (e: Exception) {
             log.error(e) { "DLT 메시지 처리 중 에러 발생" }
         }

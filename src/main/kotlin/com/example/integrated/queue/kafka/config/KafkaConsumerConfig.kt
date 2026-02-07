@@ -44,7 +44,8 @@ class KafkaConsumerConfig(
     fun kafkaListenerContainerFactory(): ConcurrentKafkaListenerContainerFactory<String, String> =
         ConcurrentKafkaListenerContainerFactory<String, String>().apply {
             consumerFactory = consumerFactory()
-            containerProperties.ackMode = ContainerProperties.AckMode.RECORD
+            containerProperties.isAsyncAcks = true
+            containerProperties.ackMode = ContainerProperties.AckMode.MANUAL_IMMEDIATE
         }
 
     /*@Bean
