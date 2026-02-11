@@ -36,7 +36,12 @@ class QueueToAllowScheduler(
                     val count = queueService.allowUser(queueType, availableAllowSize)
                     log.info { "$queueType 허용열로 이동한 사용자 : $count" }
 
-                    if (count == 0) removeActiveQueue(queueType)
+                    if (count == 0)  {
+                        removeActiveQueue(queueType)
+
+                        reactiveRedisTemplate.delete("queue:active:$queueType")
+                            .awaitSingle()
+                    }
 
                 } catch (e: Exception) {
                     log.error(e) { "스케줄링 중 예외 발생 - ${e.message}" }
@@ -54,7 +59,6 @@ class QueueToAllowScheduler(
     }
 
     suspend fun addActiveQueue(queueType: String) {
-
         reactiveRedisTemplate.opsForSet()
             .add(ACTIVE_QUEUE_KEY, queueType)
             .awaitSingle()

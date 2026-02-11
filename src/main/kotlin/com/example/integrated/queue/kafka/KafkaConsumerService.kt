@@ -3,18 +3,14 @@ package com.example.integrated.queue.kafka
 import com.example.integrated.queue.queue.QueueService
 import com.example.integrated.queue.queue.QueueToAllowScheduler
 import com.example.integrated.redis.pubsub.RedisPublisher
-import com.example.integrated.reserveException.ErrorCode
-import com.example.integrated.reserveException.ReserveException
 import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
 import com.example.integrated.util.readValueFromJson
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.springframework.http.HttpStatus
 import org.springframework.kafka.annotation.DltHandler
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.annotation.RetryableTopic
 import org.springframework.kafka.retrytopic.SameIntervalTopicReuseStrategy
-import org.springframework.kafka.support.Acknowledgment
 import org.springframework.kafka.support.KafkaHeaders
 import org.springframework.messaging.handler.annotation.Header
 import org.springframework.retry.annotation.Backoff
@@ -43,15 +39,15 @@ class KafkaConsumerService(
         autoCreateTopics = "true", // retry 토픽을 자동으로 생성, 이 설정이 없다면 토픽을 미리 생성해둬야 함
     )
     suspend fun consumeMessage(
-        message: String,
-        acknowledgment: Acknowledgment
+        message: String
     ) {
         handleMessage(message)
-        acknowledgment.acknowledge()
     }
 
     private suspend fun handleMessage(message: String) {
         val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
+
+        if (consumeMessage.userId == "p") throw RuntimeException("exception occur")
 
         val activated = queueService.enqueueAndActivateIfFirst(
             consumeMessage.queueType,
