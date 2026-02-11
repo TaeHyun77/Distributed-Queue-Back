@@ -6,14 +6,14 @@ import org.apache.kafka.common.serialization.StringDeserializer
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.env.Environment
-import org.springframework.kafka.annotation.EnableKafka
+import org.springframework.kafka.annotation.EnableKafkaRetryTopic
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory
 import org.springframework.kafka.core.ConsumerFactory
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.listener.ContainerProperties
 
-@EnableKafka
+@EnableKafkaRetryTopic
 @Configuration
 class KafkaConsumerConfig(
     private val env: Environment,
@@ -47,34 +47,4 @@ class KafkaConsumerConfig(
             containerProperties.isAsyncAcks = true
             containerProperties.ackMode = ContainerProperties.AckMode.MANUAL_IMMEDIATE
         }
-
-    /*@Bean
-    fun kafkaErrorHandler(): DefaultErrorHandler {
-        val handler = DefaultErrorHandler(
-            DeadLetterPublishingRecoverer(kafkaTemplate),
-            FixedBackOff(3000L, 3) // 3초 간격, 3회 재시도
-        )
-
-        handler.setRetryListeners(
-            object : RetryListener {
-                override fun failedDelivery(
-                    record: ConsumerRecord<*, *>,
-                    ex: Exception,
-                    deliveryAttempt: Int
-                ) {
-                    log.warn {
-                        """
-                    Kafka 재시도 발생
-                    topic=${record.topic()}
-                    partition=${record.partition()}
-                    offset=${record.offset()}
-                    attempt=$deliveryAttempt
-                    error=${ex.message}
-                    """.trimIndent()
-                    }
-                }
-            }
-        )
-        return handler
-    }*/
 }
