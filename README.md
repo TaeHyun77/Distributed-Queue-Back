@@ -4,7 +4,7 @@
 
 기존의 단일 대기열 시스템을 분산 환경으로 확장하여 개선한 프로젝트입니다.<br><br>
 
-**구현 과정**<br>
+**구현 과정 블로그**<br>
 
 https://velog.io/@ayeah77/series/%EB%8C%80%EA%B8%B0%EC%97%B4-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%9C%EC%84%A0<br><br>
 
