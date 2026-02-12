@@ -56,7 +56,7 @@ Etc : SSE, Redis pub/sub<br><br>
 
 [ 분산 서버 ]
 
-<img width="890" height="337" alt="Image" src="https://github.com/user-attachments/assets/ae1f1f2a-eead-4f7b-9452-07978f767875" /><br><br>
+<p align="center"><img width="625" height="188" alt="Image" src="https://github.com/user-attachments/assets/42426803-62b1-472f-b5cb-9980cb004d61" /><br><br>
 
 **기본 설정**
 
