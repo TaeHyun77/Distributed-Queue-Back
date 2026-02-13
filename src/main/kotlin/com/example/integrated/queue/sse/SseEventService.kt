@@ -60,7 +60,7 @@ class SseEventService(
                 )
             // 대기열에 존재한다면
             } else {
-                val rank = queueService.getUserRank(queueType, userId, "wait")
+                val rank = queueService.getWaitQueueRank(queueType, userId)
 
                 if (rank > 0) {
                     objectMapper.writeValueAsString(UpdateSseEvent(rank = rank))
