@@ -47,17 +47,14 @@ class KafkaConsumerService(
     private suspend fun handleMessage(message: String) {
         val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
 
-        if (consumeMessage.userId == "p") throw RuntimeException("exception occur")
-
-        val activated = queueService.enqueueAndActivateIfFirst(
+        queueService.enqueueToWaitQueue(
             consumeMessage.queueType,
             consumeMessage.userId,
             consumeMessage.timeStamp
         )
 
-        if (activated) {
-            queueToAllowScheduler.addActiveQueue(consumeMessage.queueType)
-        }
+        // set이므로 중복 추가해도 상관 없음 - 매번 호출하여 활성화 보장하도록 하기
+        queueToAllowScheduler.addActiveQueue(consumeMessage.queueType)
 
         redisPublisher.publish(CHANNEL_NAME, consumeMessage.queueType)
     }

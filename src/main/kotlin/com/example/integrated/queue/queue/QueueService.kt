@@ -46,81 +46,74 @@ class QueueService (
         requestKey: String
     ): RegisterResult {
         try {
-            // 중복 요청 확인
             if (duplicationCheckService.isDuplicate(queueType, userId, requestKey)) {
                 return RegisterResult.DUPLICATE_REQUEST
             }
 
-            // redis 대기열 또는 참가열에 해당 사용자가 존재하는지 확인
-            validateUserNotInQueue(queueType, userId)
+            if (isUserInQueue(queueType, userId)) {
+                return RegisterResult.ALREADY_REGISTERED
+            }
 
             val timestamp: Long = generateScore()
-            val isKafkaProduce = kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())
-
-            if (!isKafkaProduce) {
+            if (!kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())) {
                 throw ReserveException(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.KAFKA_PRODUCE_FAILED)
             }
 
             return RegisterResult.SUCCESS
 
         } catch (e: ReserveException) {
-            if (e.errorCode == ErrorCode.ALREADY_REGISTERED_USER_IN_QUEUE) {
-                return RegisterResult.ALREADY_REGISTERED
-            }
             throw e
         } catch (e: Exception) {
-            log.error{ "대기열 등록 중 알 수 없는 에러 발생 - ${e.message}" }
+            log.error { "대기열 등록 중 알 수 없는 에러 발생 - ${e.message}" }
             throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.FAIL_TO_REGISTER)
         }
     }
 
-    /*
-    * 대기열, 참가열에서의 사용자 존재 여부
-    * 두 비동기 작업이 모두 완료된 후에야 다음 로직이 실행됨
-    * */
-    suspend fun validateUserNotInQueue(
+    // 대기열에 사용자 삽입
+    suspend fun enqueueToWaitQueue(
         queueType: String,
         userId: String,
-    ) = coroutineScope {
+        timeStamp: Double
+    ): Boolean {
+        val waitKey = queueType + WAIT_QUEUE
 
-        val waitRankDeferred = async { getUserRank(queueType, userId, "wait") }
-        val isAllowedDeferred = async { getUserRank(queueType, userId, "allow") }
-
-        val waitRank: Long = waitRankDeferred.await()
-        val isAllowed: Long = isAllowedDeferred.await()
-
-        if (waitRank >= 0L || isAllowed >= 0L) {
-            throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.ALREADY_REGISTERED_USER_IN_QUEUE)
-        }
+        return reactiveRedisTemplate.opsForZSet()
+            .add(waitKey, userId, timeStamp)
+            .awaitSingle()
     }
 
-    /*
-     * 대기열에서 사용자 순위 조회
-     * 존재하지 않는다면 -1L 반환, 존재한다면 사용자의 순위 반환
-     * */
-    suspend fun getUserRank(
+    // 대기열 또는 참가열에 사용자가 존재하는지 병렬 조회
+    private suspend fun isUserInQueue(
         queueType: String,
         userId: String,
-        queueCategory: String
-    ): Long {
+    ): Boolean = coroutineScope {
+        val waitRankDeferred = async { getWaitQueueRank(queueType, userId) }
+        val allowRankDeferred = async { getAllowQueueRank(queueType, userId) }
 
-        val key = if (queueCategory == "wait") "$queueType$WAIT_QUEUE" else "$queueType$ALLOW_QUEUE"
+        waitRankDeferred.await() >= 0L || allowRankDeferred.await() >= 0L
+    }
 
-        val rank = reactiveRedisTemplate.opsForZSet()
+    // 대기열에서 사용자 순위 조회 (존재하지 않으면 -1L)
+    suspend fun getWaitQueueRank(queueType: String, userId: String): Long =
+        getQueueRank("$queueType$WAIT_QUEUE", userId)
+
+    // 참가열에서 사용자 순위 조회 (존재하지 않으면 -1L)
+    suspend fun getAllowQueueRank(queueType: String, userId: String): Long =
+        getQueueRank("$queueType$ALLOW_QUEUE", userId)
+
+    private suspend fun getQueueRank(key: String, userId: String): Long =
+        reactiveRedisTemplate.opsForZSet()
             .rank(key, userId)
             .awaitFirstOrNull()
             ?.let { it + 1L }
             ?: -1L
 
-        return rank
-    }
-
     // 열에서의 사용자 삭제
-    suspend fun cancelUser(queueType: String, userId: String): Boolean {
-        val removedFromWait = removeFromWaitQueue(queueType, userId)
-        val removedFromAllow = removeFromAllowQueue(queueType, userId)
+    suspend fun cancelUser(queueType: String, userId: String): Boolean = coroutineScope {
+        val waitDeferred = async { removeFromWaitQueue(queueType, userId) }
+        val allowDeferred = async { removeFromAllowQueue(queueType, userId) }
 
-        return removedFromWait || removedFromAllow
+        waitDeferred.await() || allowDeferred.await()
     }
 
     // 대기열에서 사용자 삭제
@@ -140,9 +133,10 @@ class QueueService (
         queueType: String,
         userId: String
     ): Boolean {
-        val key = "$queueType:allow:$userId"
+        val key = "$queueType$ALLOW_QUEUE"
 
-        return reactiveRedisTemplate.delete(key)
+        return reactiveRedisTemplate.opsForZSet()
+            .remove(key, userId)
             .awaitSingle() > 0
     }
 
@@ -204,49 +198,40 @@ class QueueService (
 
         if (poppedUsers.isEmpty()) return 0
 
+        val allowQueueKey = "$queueType$ALLOW_QUEUE"
+
         poppedUsers.forEach { user ->
             val userId = user.value.toString()
             val expireAt = System.currentTimeMillis() + Duration.ofMinutes(10).toMillis()
-            val key = "$queueType$ALLOW_QUEUE"
 
-            // 참가열에 사용자 이동
             reactiveRedisTemplate.opsForZSet()
-                .add(key, userId, expireAt.toDouble())
+                .add(allowQueueKey, userId, expireAt.toDouble())
                 .awaitSingle()
         }
 
-        if (!poppedUsers.isEmpty()) {
-            redisPublisher.publish(CHANNEL_NAME, queueType)
-        }
+        redisPublisher.publish(CHANNEL_NAME, queueType)
 
         return poppedUsers.size
     }
 
     // 입장 시간 생성 로직
     suspend fun generateScore(): Long {
-        val timestampMicros = Instant.now().toEpochMilli() * 1000
-
-        val seq = reactiveRedisTemplate.opsForValue()
+        return reactiveRedisTemplate.opsForValue()
             .increment("queue:seq")
             .awaitSingle()
-
-        val seqMasked = seq and 0xFFFFF
-        return (timestampMicros shl 20) or seqMasked
     }
 
-    // 타겟 페이지에 접속했을 때, 쿠키에 저장된 토큰의 유효성을 검증하는 로직
+    // 타겟 페이지에 접속했을 때, 입장 가능 기간과 쿠키에 저장된 토큰의 유효성을 검증하는 로직
     suspend fun isAllowTokenValid(
         queueType: String,
         userId: String,
         token: String
     ): Boolean {
-        if (!isAllowTokenExpired(queueType, userId)) return false
-        if (!isAllowTokenMatched(queueType, userId, token)) return false
-
-        return true
+        return !(isAllowTokenExpired(queueType, userId) || isTokenMismatch(queueType, userId, token))
     }
 
     // 참가열에서의 사용자 TTL 만료 여부 조회
+    // 만료 시 true 반환
     suspend fun isAllowTokenExpired(
         queueType: String,
         userId: String
@@ -256,48 +241,19 @@ class QueueService (
         val score = reactiveRedisTemplate.opsForZSet()
             .score(key, userId)
             .awaitSingleOrNull()
-            ?: return true // 존재하지 않으면 만료로 간주
+            ?: return true // 존재하지 않으면 만료로 간주하며, true 반환
 
         val now = System.currentTimeMillis().toDouble()
         return score < now
     }
 
     // 토큰의 유효성 판별 로직
-    private fun isAllowTokenMatched(
+    // 유효하지 않다면 true 반환
+    private fun isTokenMismatch(
         queueType: String,
         userId: String,
         token: String
     ): Boolean {
-        return createAccessToken(queueType, userId) == token
-    }
-
-    suspend fun enqueueAndActivateIfFirst(
-        queueType: String,
-        userId: String,
-        timeStamp: Double
-    ): Boolean {
-        val waitKey = queueType + WAIT_QUEUE
-        val activeKey = "queue:active:$queueType"
-
-        val added = reactiveRedisTemplate.opsForZSet()
-            .add(waitKey, userId, timeStamp)
-            .awaitSingle()
-
-        if (!added) return false
-
-        // 최초 활성화 시도
-        val activated = reactiveRedisTemplate.opsForValue()
-            .setIfAbsent(activeKey, "1")
-            .awaitSingle()
-
-        return activated
-    }
-
-    suspend fun getAllowQueueSize(queueType: String): Long {
-        val key = "$queueType$ALLOW_QUEUE"
-
-        return reactiveRedisTemplate.opsForZSet()
-            .size(key)
-            .awaitSingle()
+        return createAccessToken(queueType, userId) != token
     }
 }

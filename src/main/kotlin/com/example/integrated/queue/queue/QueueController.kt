@@ -50,9 +50,11 @@ class QueueController (
     suspend fun getUserRank(
         @RequestParam queueType: String,
         @RequestParam userId: String,
-        @PathVariable("queueCategory") queueCategory: String
-    ): Long {
-        return queueService.getUserRank(queueType, userId, queueCategory)
+        @RequestParam queueCategory: String
+    ): Long = when (queueCategory) {
+        "wait" -> queueService.getWaitQueueRank(queueType, userId)
+        "allow" -> queueService.getAllowQueueRank(queueType, userId)
+        else -> -1L
     }
 
 
