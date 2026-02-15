@@ -1,6 +1,8 @@
 package com.example.integrated.redis.config
 
 import com.example.integrated.util.Loggable
+import io.lettuce.core.ClientOptions
+import io.lettuce.core.TimeoutOptions
 import org.redisson.Redisson
 import org.redisson.api.RedissonClient
 import org.redisson.config.Config
@@ -11,24 +13,26 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory
 import org.springframework.data.redis.connection.RedisSentinelConfiguration
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.data.redis.listener.ReactiveRedisMessageListenerContainer
 import org.springframework.data.redis.serializer.RedisSerializationContext
 import org.springframework.data.redis.serializer.StringRedisSerializer
+import java.time.Duration
 
 // master-slave 구조로 변경함에 따라 설정 파일 변경
 @Configuration
 class RedisConfig(
     @Value("\${spring.redis.sentinel.master}") val master: String,
     @Value("\${spring.redis.sentinel.nodes}") val sentinelNodes: String
-
 ): Loggable {
 
     // Redis와 연결을 맺어주는 팩토리 객체 생성
     @Bean
     fun lettuceConnectionFactory(): LettuceConnectionFactory {
-        val sentinelConfig = RedisSentinelConfiguration().master(master)
+        val sentinelConfig = RedisSentinelConfiguration()
+            .master(master)
 
         sentinelNodes.split(",").forEach {
             val (host, port) = it.split(":")
@@ -36,20 +40,35 @@ class RedisConfig(
             sentinelConfig.sentinel(host.trim(), port.trim().toInt())
         }
 
-        return LettuceConnectionFactory(sentinelConfig)
+        val clientConfig = LettuceClientConfiguration.builder()
+            .clientOptions(
+                ClientOptions.builder()
+                    .autoReconnect(true)
+                    .disconnectedBehavior(
+                        ClientOptions.DisconnectedBehavior.REJECT_COMMANDS // Redis와 연결이 끊겼을 때, 즉시 예외 던지기
+                    )
+                    .timeoutOptions(
+                        TimeoutOptions.builder()
+                            .fixedTimeout(Duration.ofSeconds(5)) // redis 명령어가 5초 내에 실행되지 않는다면 실패 처리
+                            .build()
+                    )
+                    .build()
+            )
+            .build()
+
+        return LettuceConnectionFactory(sentinelConfig, clientConfig)
     }
 
-    // 실제 애플리케이션에서 Redis와 데이터를 주고받는 인터페이스
+    // READONLY 에러 발생 시 자동으로 새 마스터로 재연결하는 ReactiveRedisTemplate
     @Bean
     fun reactiveRedisTemplate(): ReactiveRedisTemplate<String, String> {
 
-        // StringRedisSerializer()를 사용해서 key와 value 모두 String으로 직렬화 / 역직렬화하도록 설정
         val context = RedisSerializationContext
             .newSerializationContext<String, String>(StringRedisSerializer())
             .value(StringRedisSerializer())
             .build()
 
-        return ReactiveRedisTemplate(lettuceConnectionFactory(), context)
+        return FailoverAwareRedisTemplate(lettuceConnectionFactory(), context)
     }
 
     @Bean
