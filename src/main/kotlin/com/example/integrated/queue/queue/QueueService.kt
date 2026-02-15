@@ -1,5 +1,6 @@
 package com.example.integrated.queue.queue
 
+import com.example.integrated.queue.duplication.DuplicationCheckRepository
 import com.example.integrated.queue.duplication.DuplicationCheckService
 import com.example.integrated.queue.kafka.KafkaProducerService
 import com.example.integrated.queue.queue.dto.RegisterResult
@@ -35,6 +36,7 @@ class QueueService (
     private val kafkaProducerService: KafkaProducerService,
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
     private val duplicationCheckService: DuplicationCheckService,
+    private val duplicationCheckRepository: DuplicationCheckRepository,
 
     private val redisPublisher: RedisPublisher
 ): Loggable {
@@ -45,17 +47,22 @@ class QueueService (
         userId: String,
         requestKey: String
     ): RegisterResult {
+
+        // 1. 이미 대기 or 참가열에 사용자가 존재하는지 확인
+        if (isUserInQueue(queueType, userId)) {
+            return RegisterResult.ALREADY_REGISTERED
+        }
+
+        // 2. 중복된 요청인지 확인
+        if (duplicationCheckService.isDuplicate(queueType, userId, requestKey)) {
+            return RegisterResult.DUPLICATE_REQUEST
+        }
+
         try {
-            if (duplicationCheckService.isDuplicate(queueType, userId, requestKey)) {
-                return RegisterResult.DUPLICATE_REQUEST
-            }
-
-            if (isUserInQueue(queueType, userId)) {
-                return RegisterResult.ALREADY_REGISTERED
-            }
-
             val timestamp: Long = generateScore()
             if (!kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())) {
+                // Kafka produce에 실패했다면 저장한 requestKey 엔티티 삭제 ( 재시도 가능하도록 )
+                duplicationCheckRepository.deleteByRequestKey(requestKey)
                 throw ReserveException(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.KAFKA_PRODUCE_FAILED)
             }
 
@@ -65,6 +72,7 @@ class QueueService (
             throw e
         } catch (e: Exception) {
             log.error { "대기열 등록 중 알 수 없는 에러 발생 - ${e.message}" }
+            duplicationCheckRepository.deleteByRequestKey(requestKey)
             throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.FAIL_TO_REGISTER)
         }
     }
@@ -184,7 +192,6 @@ class QueueService (
     }
 
     // 대기열 -> 참가열 이동 로직
-    // Redis Lua Script로 “pop → add → TTL”을 하나의 원자 연산으로 묶는 방법으로 개선 고려
     suspend fun allowUser(
         queueType: String,
         count: Long
@@ -222,13 +229,12 @@ class QueueService (
     }
 
     // 타겟 페이지에 접속했을 때, 입장 가능 기간과 쿠키에 저장된 토큰의 유효성을 검증하는 로직
+    // false 반환 : 잘못된 인증
     suspend fun isAllowTokenValid(
         queueType: String,
         userId: String,
         token: String
-    ): Boolean {
-        return !(isAllowTokenExpired(queueType, userId) || isTokenMismatch(queueType, userId, token))
-    }
+    ): Boolean = !(isAllowTokenExpired(queueType, userId) || isTokenMismatch(queueType, userId, token))
 
     // 참가열에서의 사용자 TTL 만료 여부 조회
     // 만료 시 true 반환
@@ -244,6 +250,7 @@ class QueueService (
             ?: return true // 존재하지 않으면 만료로 간주하며, true 반환
 
         val now = System.currentTimeMillis().toDouble()
+
         return score < now
     }
 
@@ -253,7 +260,5 @@ class QueueService (
         queueType: String,
         userId: String,
         token: String
-    ): Boolean {
-        return createAccessToken(queueType, userId) != token
-    }
+    ): Boolean = createAccessToken(queueType, userId) != token
 }

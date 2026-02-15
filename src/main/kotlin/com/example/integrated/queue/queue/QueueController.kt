@@ -37,7 +37,7 @@ class QueueController (
 
         val requestKey = header.headers["request-key"]
             ?.firstOrNull()
-            ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_IDEMPOTENCY_KEY)
+            ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_REQUEST_KEY)
 
         log.info { "queue-server-name: $serverName" }
         log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , requestKey: $requestKey" }
@@ -56,7 +56,6 @@ class QueueController (
         "allow" -> queueService.getAllowQueueRank(queueType, userId)
         else -> -1L
     }
-
 
     // 쿠키에 토큰 전달
     @GetMapping("/create/cookie")

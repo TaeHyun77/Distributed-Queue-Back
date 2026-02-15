@@ -1,4 +1,4 @@
-version: "3"
+version: "2.4"
 
 services:
   queueing-back-1:
@@ -9,9 +9,18 @@ services:
     ports:
       - "8081:8081"
     depends_on:
-      - kafka-1
-      - kafka-2
-      - kafka-3
+      kafka-1:
+        condition: service_healthy # service_healthy는 고정된 이름 값
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+      redis-sentinel01:
+        condition: service_healthy
+      redis-sentinel02:
+        condition: service_healthy
+      redis-sentinel03:
+        condition: service_healthy
     networks:
       - integrated-net
 
@@ -23,9 +32,18 @@ services:
     ports:
       - "8082:8081"
     depends_on:
-      - kafka-1
-      - kafka-2
-      - kafka-3
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+      redis-sentinel01:
+        condition: service_healthy
+      redis-sentinel02:
+        condition: service_healthy
+      redis-sentinel03:
+        condition: service_healthy
     networks:
       - integrated-net
 
@@ -37,9 +55,18 @@ services:
     ports:
       - "8083:8081"
     depends_on:
-      - kafka-1
-      - kafka-2
-      - kafka-3
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+      redis-sentinel01:
+        condition: service_healthy
+      redis-sentinel02:
+        condition: service_healthy
+      redis-sentinel03:
+        condition: service_healthy
     networks:
       - integrated-net
 
@@ -63,9 +90,15 @@ services:
     networks:
       - integrated-net
 
+  # Kafka Broker를 3대 실행시켜 Cluster 구조로 구성
   kafka-1:
     image: confluentinc/cp-kafka:latest
     container_name: kafka-1
+    healthcheck: # 5초마다 health check를 수행하여 Kafka 브로커가 정상적으로 기동되어 요청을 처리할 수 있는 상태인지 확인
+      test: [ "CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1" ]
+      interval: 5s
+      timeout: 10s
+      retries: 15
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker,controller'
@@ -92,6 +125,11 @@ services:
   kafka-2:
     image: confluentinc/cp-kafka:latest
     container_name: kafka-2
+    healthcheck:
+      test: [ "CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1" ]
+      interval: 5s
+      timeout: 10s
+      retries: 15
     environment:
       KAFKA_NODE_ID: 2
       KAFKA_PROCESS_ROLES: 'broker,controller'
@@ -118,6 +156,11 @@ services:
   kafka-3:
     image: confluentinc/cp-kafka:latest
     container_name: kafka-3
+    healthcheck:
+      test: [ "CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1" ]
+      interval: 5s
+      timeout: 10s
+      retries: 15
     environment:
       KAFKA_NODE_ID: 3
       KAFKA_PROCESS_ROLES: 'broker,controller'
@@ -153,6 +196,11 @@ services:
     image: "bitnami/redis:latest"
     hostname: redis-master
     container_name: queue-redis-master
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     environment:
       - REDIS_REPLICATION_MODE=master
       - ALLOW_EMPTY_PASSWORD=yes # 비밀번호 없이
@@ -165,6 +213,11 @@ services:
     image: "bitnami/redis:latest"
     hostname: redis-slave01
     container_name: queue-redis-slave01
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     environment:
       - REDIS_REPLICATION_MODE=slave
       - ALLOW_EMPTY_PASSWORD=yes
@@ -180,6 +233,11 @@ services:
     image: "bitnami/redis:latest"
     hostname: redis-slave02
     container_name: queue-redis-slave02
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     environment:
       - REDIS_REPLICATION_MODE=slave
       - ALLOW_EMPTY_PASSWORD=yes
@@ -188,7 +246,6 @@ services:
       - "6579:6379"
     depends_on:
       - redis-master
-      - redis-slave01
     networks:
       - integrated-net
 
@@ -196,16 +253,27 @@ services:
     image: 'bitnami/redis-sentinel:latest'
     hostname: redis-sentinel01
     container_name: queue-redis-sentinel01
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-p", "26379", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     environment:
-      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=3000
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000 # redis 노드에서 설정값 동안 응답이 없으면 down으로 판단
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT=10000 # failover 타임아웃, 설정값동안 failover가 완료되지 않는다면 다른 Sentinel이 재시도 (10초, 기본은 180초)
+      - REDIS_SENTINEL_PARALLEL_SYNCS=1 # Failover 이후, Slave들이 새 Master와 동기화할 때 동시에 몇 개까지 sync 할지
       - REDIS_MASTER_HOST=redis-master
       - REDIS_MASTER_PORT_NUMBER=6379
       - REDIS_MASTER_SET=toMaster
-      - REDIS_SENTINEL_QUORUM=2 # 과반수
+      - REDIS_SENTINEL_QUORUM=2 # 장애 판단을 확정하기 위해 2개 ( 과반수 )의 sentinel 동의가 필요
     depends_on:
-      - redis-master
-      - redis-slave01
-      - redis-slave02
+      redis-master:
+        condition: service_healthy
+      redis-slave01:
+          condition: service_healthy
+      redis-slave02:
+          condition: service_healthy
+
     ports:
       - '26379:26379'
     networks:
@@ -215,16 +283,26 @@ services:
     image: 'bitnami/redis-sentinel:latest'
     hostname: redis-sentinel02
     container_name: queue-redis-sentinel02
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-p", "26379", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     environment:
-      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=3000
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT=10000
+      - REDIS_SENTINEL_PARALLEL_SYNCS=1
       - REDIS_MASTER_HOST=redis-master
       - REDIS_MASTER_PORT_NUMBER=6379
       - REDIS_MASTER_SET=toMaster
       - REDIS_SENTINEL_QUORUM=2
     depends_on:
-      - redis-master
-      - redis-slave01
-      - redis-slave02
+      redis-master:
+        condition: service_healthy
+      redis-slave01:
+        condition: service_healthy
+      redis-slave02:
+        condition: service_healthy
     ports:
       - '26380:26379'
     networks:
@@ -234,8 +312,15 @@ services:
     image: 'bitnami/redis-sentinel:latest'
     hostname: redis-sentinel03
     container_name: queue-redis-sentinel03
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-p", "26379", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     environment:
-      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=3000
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT=10000
+      - REDIS_SENTINEL_PARALLEL_SYNCS=1
       - REDIS_MASTER_HOST=redis-master
       - REDIS_MASTER_PORT_NUMBER=6379
       - REDIS_MASTER_SET=toMaster

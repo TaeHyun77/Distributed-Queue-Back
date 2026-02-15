@@ -32,11 +32,11 @@ class KafkaConsumerService(
         topics = ["\${queue.event.topic.name}"],
         containerFactory = "kafkaListenerContainerFactory"
     )
-    @RetryableTopic( // 4번까지는 재시도 후 그래도 실패한다면 DLT 토픽으로 작업을 이동
-        attempts = "3",
-        backoff = Backoff(delay = 1000),
-        sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.SINGLE_TOPIC, // 이를 통해 재시도 토픽을 한 개만 생성하도록 함
-        autoCreateTopics = "true", // retry 토픽을 자동으로 생성, 이 설정이 없다면 토픽을 미리 생성해둬야 함
+    @RetryableTopic( // Redis failover 시간(~15초)을 커버하도록 exponential backoff 적용, 최종 실패 시 DLT로 이동
+        attempts = "6", // 첫 시도 1회 + 재시도 5회
+        backoff = Backoff(delay = 1000, multiplier = 2.0, maxDelay = 12000), //
+        sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.SINGLE_TOPIC,
+        autoCreateTopics = "true",
     )
     suspend fun consumeMessage(
         message: String

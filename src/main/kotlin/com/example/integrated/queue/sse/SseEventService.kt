@@ -37,7 +37,7 @@ class SseEventService(
             .catch { e ->
                 log.error { "SSE 처리 중 에러: ${e.message}" }
                 val err = objectMapper.writeValueAsString(
-                    ErrorSseEvent(message = "sse 이벤트 전송 오류 발생")
+                    ErrorSseEvent(message = "SSE 이벤트 전송 오류 발생")
                 )
 
                 emit(ServerSentEvent.builder(err)
@@ -51,30 +51,41 @@ class SseEventService(
         userId: String,
     ): String {
         return try {
-            val allowed = queueService.isAllowTokenExpired(queueType, userId)
+            // false : 참가열에 존재하고, 만료되지 않은 사용자
+            val isInAllowQueue = !queueService.isAllowTokenExpired(queueType, userId)
 
-            // 참가열에 존재한다면
-            if (allowed) {
+            // 참가열에 존재
+            if (isInAllowQueue) {
                 objectMapper.writeValueAsString(
                     ConfirmSseEvent(userId = userId)
                 )
-            // 대기열에 존재한다면
+
+            // 대기열에 존재
             } else {
                 val rank = queueService.getWaitQueueRank(queueType, userId)
 
                 if (rank > 0) {
                     objectMapper.writeValueAsString(UpdateSseEvent(rank = rank))
                 } else {
-                    objectMapper.writeValueAsString(
-                        ErrorSseEvent(message = "대기열 조회 오류 발생")
-                    )
+                    // 승격 중간 상태일 수 있으므로 한 번 더 참가열 확인
+                    val confirmedAfterRetry = !queueService.isAllowTokenExpired(queueType, userId)
+
+                    if (confirmedAfterRetry) {
+                        objectMapper.writeValueAsString(
+                            ConfirmSseEvent(userId = userId)
+                        )
+                    } else {
+                        objectMapper.writeValueAsString(
+                            ErrorSseEvent(message = "대기열 조회 오류 발생")
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {
-            log.error { "sse 이벤트 생성 중 에러: ${e.message}" }
+            log.error { "SSE 이벤트 생성 중 에러: ${e.message}" }
 
             objectMapper.writeValueAsString(
-                ErrorSseEvent(message = "sse 이벤트 생성 실패")
+                ErrorSseEvent(message = "SSE 이벤트 생성 실패")
             )
         }
     }
