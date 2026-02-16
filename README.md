@@ -40,7 +40,9 @@ Etc : SSE, Redis pub/sub<br><br>
 
 2. 스케줄링 중복 문제
 
-3. Kafka Consume 재시도 로직 구현<br><br>
+3. Kafka Cluster, Redis Replica 구조를 구성하여 고가용성을 확보하였습니다.
+
+4. Kafka Consumer에서 Redis ZSet 기반 대기열로 이어지는 삽입 과정에 재시도 로직을 도입하여, 장애 상황에서도 메시지 유실 없이 안정적으로 처리되도록 구현하였습니다.<br><br>
 
 ### 아키텍처 및 대기열 등록 과정
 
