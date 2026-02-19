@@ -326,9 +326,12 @@ services:
       - REDIS_MASTER_SET=toMaster
       - REDIS_SENTINEL_QUORUM=2
     depends_on:
-      - redis-master
-      - redis-slave01
-      - redis-slave02
+      redis-master:
+        condition: service_healthy
+      redis-slave01:
+        condition: service_healthy
+      redis-slave02:
+        condition: service_healthy
     ports:
       - '26381:26379'
     networks:

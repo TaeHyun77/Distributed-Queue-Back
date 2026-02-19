@@ -11,8 +11,7 @@ class RedisPublisher(
     fun publish(channel: String, message: String) {
 
         // 특정 채널로 메세지를 전달 ( 이 채널을 구독 중인 클라이언트에게 전달할 수 있음 )
-        // .subscribe() 꼭 붙여야 함 ⭐️
         reactiveRedisTemplate.convertAndSend(channel, message)
-            .subscribe()
+            .subscribe() // subscribe() 꼭 붙여야 함 ⭐️
     }
 }
