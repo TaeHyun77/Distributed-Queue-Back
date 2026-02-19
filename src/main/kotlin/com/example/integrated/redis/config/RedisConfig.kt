@@ -59,7 +59,6 @@ class RedisConfig(
         return LettuceConnectionFactory(sentinelConfig, clientConfig)
     }
 
-    // READONLY 에러 발생 시 자동으로 새 마스터로 재연결하는 ReactiveRedisTemplate
     @Bean
     fun reactiveRedisTemplate(): ReactiveRedisTemplate<String, String> {
 
@@ -68,7 +67,7 @@ class RedisConfig(
             .value(StringRedisSerializer())
             .build()
 
-        return FailoverAwareRedisTemplate(lettuceConnectionFactory(), context)
+        return ReactiveRedisTemplate(lettuceConnectionFactory(), context)
     }
 
     @Bean

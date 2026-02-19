@@ -11,8 +11,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import org.springframework.http.codec.ServerSentEvent
 import org.springframework.stereotype.Service
+import java.util.concurrent.ConcurrentHashMap
 
 @Service
 class SseEventService(
@@ -20,73 +22,76 @@ class SseEventService(
     private val objectMapper: ObjectMapper,
 ): Loggable {
 
+    // 특정 queueType 별로 이벤트를 독립적으로 전달하기 위해 Flow를 분리
     companion object {
-        val sink = MutableSharedFlow<String>(replay = 1)
+        private val sinks = ConcurrentHashMap<String, MutableSharedFlow<String>>()
+
+        fun getSink(queueType: String): MutableSharedFlow<String> {
+            return sinks.computeIfAbsent(queueType) {
+                MutableSharedFlow(extraBufferCapacity = 64)
+            }
+        }
     }
 
     fun streamQueueEvents(
         queueType: String,
         userId: String
     ): Flow<ServerSentEvent<String>> {
-        return sink
-            .filter { it == queueType }
-            .map {
-                ServerSentEvent.builder(buildEvent(queueType, userId))
-                    .build()
-            }
+        return getSink(queueType)
+            .onStart { emit(queueType) } // 연결 즉시 현재 상태를 먼저 전송
+            .map { buildSseEvent(queueType, userId) }
             .catch { e ->
                 log.error { "SSE 처리 중 에러: ${e.message}" }
-                val err = objectMapper.writeValueAsString(
-                    ErrorSseEvent(message = "SSE 이벤트 전송 오류 발생")
-                )
-
-                emit(ServerSentEvent.builder(err)
-                    .build()
+                emit(
+                    ServerSentEvent.builder(
+                        objectMapper.writeValueAsString(
+                            ErrorSseEvent(message = "SSE 이벤트 전송 오류 발생")
+                        )
+                    ).event("error").build()
                 )
             }
     }
 
-    private suspend fun buildEvent(
+    private suspend fun buildSseEvent(
         queueType: String,
         userId: String,
-    ): String {
+    ): ServerSentEvent<String> {
         return try {
-            // false : 참가열에 존재하고, 만료되지 않은 사용자
+
+            // 참가열에 존재하는지 확인
             val isInAllowQueue = !queueService.isAllowTokenExpired(queueType, userId)
 
-            // 참가열에 존재
             if (isInAllowQueue) {
-                objectMapper.writeValueAsString(
-                    ConfirmSseEvent(userId = userId)
-                )
-
-            // 대기열에 존재
+                ServerSentEvent.builder(
+                    objectMapper.writeValueAsString(ConfirmSseEvent(userId = userId))
+                ).event("confirmed").build()
             } else {
                 val rank = queueService.getWaitQueueRank(queueType, userId)
 
                 if (rank > 0) {
-                    objectMapper.writeValueAsString(UpdateSseEvent(rank = rank))
+                    ServerSentEvent.builder(
+                        objectMapper.writeValueAsString(UpdateSseEvent(rank = rank))
+                    ).event("update").build()
                 } else {
                     // 승격 중간 상태일 수 있으므로 한 번 더 참가열 확인
                     val confirmedAfterRetry = !queueService.isAllowTokenExpired(queueType, userId)
 
                     if (confirmedAfterRetry) {
-                        objectMapper.writeValueAsString(
-                            ConfirmSseEvent(userId = userId)
-                        )
+                        ServerSentEvent.builder(
+                            objectMapper.writeValueAsString(ConfirmSseEvent(userId = userId))
+                        ).event("confirmed").build()
                     } else {
-                        objectMapper.writeValueAsString(
-                            ErrorSseEvent(message = "대기열 조회 오류 발생")
-                        )
+                        ServerSentEvent.builder(
+                            objectMapper.writeValueAsString(ErrorSseEvent(message = "대기열 조회 오류 발생"))
+                        ).event("error").build()
                     }
                 }
             }
         } catch (e: Exception) {
             log.error { "SSE 이벤트 생성 중 에러: ${e.message}" }
-
-            objectMapper.writeValueAsString(
-                ErrorSseEvent(message = "SSE 이벤트 생성 실패")
-            )
+            ServerSentEvent.builder(
+                objectMapper.writeValueAsString(ErrorSseEvent(message = "SSE 이벤트 생성 실패"))
+            ).event("error").build()
         }
     }
 }

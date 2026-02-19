@@ -5,15 +5,12 @@ import com.example.integrated.queue.queue.dto.RegisterResult
 import com.example.integrated.util.Loggable
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
-import jakarta.servlet.http.HttpServletResponse
-import kotlinx.coroutines.delay
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.reactive.ServerHttpRequest
 import org.springframework.http.server.reactive.ServerHttpResponse
 import org.springframework.web.bind.annotation.*
-import java.time.Instant
 
 @RequestMapping("/queue")
 @RestController
