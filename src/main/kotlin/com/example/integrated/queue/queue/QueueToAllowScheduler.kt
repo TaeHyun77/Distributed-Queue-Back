@@ -4,6 +4,7 @@ import com.example.integrated.redis.RedisLockUtil
 import com.example.integrated.util.ACTIVE_QUEUE_KEY
 import com.example.integrated.util.ALLOW_QUEUE
 import com.example.integrated.util.Loggable
+import com.example.integrated.util.SCHEDULING_KEY
 import com.example.integrated.util.WAIT_QUEUE
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
@@ -22,15 +23,17 @@ class QueueToAllowScheduler(
     private val maxCapacity: Long,
 ) : Loggable {
 
+    // fixedDelayString 마다 모든 인스턴스가 락 획득을 시도합니다.
+    // 이때 락을 획득한 서버만 스케줄링을 진행합니다.
     @Scheduled(
         fixedDelayString = "\${queue.allow.interval-ms}",
-        initialDelay = 5000
+        initialDelay = 5000 // 애플리케이션 시작 후 5초 후부터 진행
     )
     suspend fun scheduling() {
         val activeQueues = getActiveQueue()
         if (activeQueues.isEmpty()) return
 
-        redisLockUtil.acquireLockAndRun("scheduling_key") {
+        redisLockUtil.acquireLockAndRun(SCHEDULING_KEY) {
             activeQueues.forEach { queueType ->
                 try {
                     val allowQueueSize = getAllowQueueSize(queueType)
