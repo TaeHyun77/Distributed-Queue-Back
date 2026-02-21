@@ -42,7 +42,7 @@ Etc : SSE, Redis pub/sub<br><br>
 
 3. Kafka Cluster와 Redis Sentinel 기반 Replica 구조를 구성하여 고가용성을 확보하였습니다.
 
-4. Kafka Consumer에서 Redis ZSet 기반 대기열로의 삽입 과정에 재시도 로직을 적용하여, 일시적인 장애 상황에서도 메시지 유실 없이 안정적으로 처리되도록 하였습니다.<br><br>
+4. Kafka consume 과정에서 @RetryableTopic 방식의 재시도 로직을 구현하여, 장애 상황에서 메시지 유실 없이 안정적으로 처리되도록 하였습니다.<br><br>
 
 ### 아키텍처 및 대기열 등록 과정
 
