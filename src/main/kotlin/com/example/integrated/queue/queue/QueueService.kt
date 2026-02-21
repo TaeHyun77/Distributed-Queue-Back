@@ -1,6 +1,5 @@
 package com.example.integrated.queue.queue
 
-import com.example.integrated.queue.duplication.DuplicationCheckRepository
 import com.example.integrated.queue.duplication.DuplicationCheckService
 import com.example.integrated.queue.kafka.KafkaProducerService
 import com.example.integrated.queue.queue.dto.RegisterResult
@@ -14,6 +13,7 @@ import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.data.redis.core.DefaultTypedTuple
 import org.springframework.data.redis.core.ReactiveRedisTemplate
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseCookie
@@ -23,7 +23,6 @@ import org.springframework.stereotype.Service
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
-import java.time.Instant
 import java.util.*
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -36,7 +35,6 @@ class QueueService (
     private val kafkaProducerService: KafkaProducerService,
     private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
     private val duplicationCheckService: DuplicationCheckService,
-    private val duplicationCheckRepository: DuplicationCheckRepository,
 
     private val redisPublisher: RedisPublisher
 ): Loggable {
@@ -45,36 +43,29 @@ class QueueService (
     suspend fun registerUserToWaitQueue(
         queueType: String,
         userId: String,
-        requestKey: String
+        requestKey: String,
+        requestTimestamp: Double
     ): RegisterResult {
 
-        // 1. 이미 대기 or 참가열에 사용자가 존재하는지 확인
+        // Nginx 도착 시각 기반 score 생성 (동일 밀리초 내에서는 Redis INCR로 순서 구분)
+        val timestamp: Double = generateScore(requestTimestamp)
+
+        // 1. 중복된 요청인지 확인
+        if (duplicationCheckService.isDuplicate(requestKey)) {
+            return RegisterResult.DUPLICATE_REQUEST
+        }
+
+        // 2. 이미 대기 or 참가열에 사용자가 존재하는지 확인
         if (isUserInQueue(queueType, userId)) {
             return RegisterResult.ALREADY_REGISTERED
         }
 
-        // 2. 중복된 요청인지 확인
-        if (duplicationCheckService.isDuplicate(queueType, userId, requestKey)) {
-            return RegisterResult.DUPLICATE_REQUEST
+        // 3. 카프카로 대기열 삽입 이벤트 전달
+        if (!kafkaProducerService.sendMessage(queueType, userId, timestamp)) {
+            throw ReserveException(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.KAFKA_PRODUCE_FAILED)
         }
 
-        try {
-            val timestamp: Long = generateScore()
-            if (!kafkaProducerService.sendMessage(queueType, userId, timestamp.toDouble())) {
-                // Kafka produce에 실패했다면 저장한 requestKey 엔티티 삭제 ( 재시도 가능하도록 )
-                duplicationCheckRepository.deleteByRequestKey(requestKey)
-                throw ReserveException(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.KAFKA_PRODUCE_FAILED)
-            }
-
-            return RegisterResult.SUCCESS
-
-        } catch (e: ReserveException) {
-            throw e
-        } catch (e: Exception) {
-            log.error { "대기열 등록 중 알 수 없는 에러 발생 - ${e.message}" }
-            duplicationCheckRepository.deleteByRequestKey(requestKey)
-            throw ReserveException(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.FAIL_TO_REGISTER)
-        }
+        return RegisterResult.SUCCESS
     }
 
     // 대기열에 사용자 삽입
@@ -207,25 +198,32 @@ class QueueService (
 
         val allowQueueKey = "$queueType$ALLOW_QUEUE"
 
-        poppedUsers.forEach { user ->
-            val userId = user.value.toString()
-            val expireAt = System.currentTimeMillis() + Duration.ofMinutes(10).toMillis()
+        val expireAt = System.currentTimeMillis() + Duration.ofMinutes(10).toMillis()
 
-            reactiveRedisTemplate.opsForZSet()
-                .add(allowQueueKey, userId, expireAt.toDouble())
-                .awaitSingle()
-        }
+        // 개별적으로 add 하는 것이 아닌 한 번에 하도록
+        val tuples = poppedUsers.map { user ->
+            DefaultTypedTuple(user.value.toString(), expireAt.toDouble())
+        }.toSet()
+
+        reactiveRedisTemplate.opsForZSet()
+            .addAll(allowQueueKey, tuples)
+            .awaitSingle()
 
         redisPublisher.publish(CHANNEL_NAME, queueType)
+
 
         return poppedUsers.size
     }
 
-    // 입장 시간 생성 로직
-    suspend fun generateScore(): Long {
-        return reactiveRedisTemplate.opsForValue()
+    // Nginx 도착 시각 + Redis 순번으로 score 생성
+    // Nginx 타임스탬프가 없는 경우 (직접 호출 등) Redis 순번만 사용
+    suspend fun generateScore(requestTimestamp: Double): Double {
+        val seq = reactiveRedisTemplate.opsForValue()
             .increment("queue:seq")
             .awaitSingle()
+
+        val timestampSec = requestTimestamp.toLong()
+        return timestampSec * 10000.0 + (seq % 10000)
     }
 
     // 타겟 페이지에 접속했을 때, 입장 가능 기간과 쿠키에 저장된 토큰의 유효성을 검증하는 로직

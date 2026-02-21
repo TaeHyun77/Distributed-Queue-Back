@@ -36,10 +36,13 @@ class QueueController (
             ?.firstOrNull()
             ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_REQUEST_KEY)
 
+        val requestTimestamp = header.headers.getFirst("X-Request-Timestamp")!!.toDouble()
+
         log.info { "queue-server-name: $serverName" }
         log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , requestKey: $requestKey" }
+        log.info { "requestTimestamp : $requestTimestamp" }
 
-        return queueService.registerUserToWaitQueue(queueType, userId, requestKey)
+        return queueService.registerUserToWaitQueue(queueType, userId, requestKey, requestTimestamp)
     }
 
     // 대기열에서의 사용자 순위 반환

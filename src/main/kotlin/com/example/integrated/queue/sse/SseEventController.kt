@@ -1,12 +1,10 @@
 package com.example.integrated.queue.sse
 
-import com.example.integrated.queue.queue.dto.QueueRequest
 import com.example.integrated.util.Loggable
 import kotlinx.coroutines.flow.Flow
 import org.springframework.http.MediaType
 import org.springframework.http.codec.ServerSentEvent
 import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController

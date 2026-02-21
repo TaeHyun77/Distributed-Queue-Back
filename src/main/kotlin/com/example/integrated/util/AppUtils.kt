@@ -11,27 +11,7 @@ const val WAIT_QUEUE: String = ":user-queue:wait"
 const val ALLOW_QUEUE: String = ":user-queue:allow"
 const val CHANNEL_NAME = "queueing_system"
 const val ACTIVE_QUEUE_KEY = "active-allow-queue"
-
-
-suspend fun logScope(name: String, scope: CoroutineScope? = null) {
-    val ctx = scope?.coroutineContext ?: coroutineContext
-
-    // Job을 제외한 Context (부모 스코프 기준 확인용)
-    // Job을 포함 한다면 각 코루틴은 독립적인 Job을 가지기에 항상 달라지므로 Job을 제외하고 계산해야 함
-    val ctxWithoutJob = ctx.minusKey(Job)
-
-    println(
-        """
-        [$name]
-        Scope(hashWithoutJob): ${ctxWithoutJob.hashCode()}
-        Full Scope(hash): ${ctx.hashCode()}
-        Job: ${ctx[Job]}
-        Dispatcher: ${ctx[ContinuationInterceptor]}
-        CoroutineName: ${ctx[CoroutineName]}
-        Thread: ${Thread.currentThread().name}
-        """.trimIndent()
-    )
-}
+const val SCHEDULING_KEY = "scheduling-key"
 
 inline fun <reified T> ObjectMapper.readValueFromJson(json: String): T {
     return readValue(json, T::class.java)
