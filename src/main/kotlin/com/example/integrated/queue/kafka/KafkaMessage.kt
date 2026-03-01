@@ -5,5 +5,7 @@ data class KafkaMessage (
 
     val userId: String,
 
-    val timeStamp: Double
+    val timeStamp: Double,
+
+    val requestedAt: Long = 0L
 )

@@ -47,7 +47,7 @@ class QueueService (
         requestTimestamp: Double
     ): RegisterResult {
 
-        // Nginx 도착 시각 기반 score 생성 (동일 밀리초 내에서는 Redis INCR로 순서 구분)
+        // Nginx 도착 시각 기반 score 생성 ( 동일 밀리초 내에서는 Redis INCR로 순서 구분 )
         val timestamp: Double = generateScore(requestTimestamp)
 
         // 1. 중복된 요청인지 확인
@@ -61,7 +61,7 @@ class QueueService (
         }
 
         // 3. 카프카로 대기열 삽입 이벤트 전달
-        if (!kafkaProducerService.sendMessage(queueType, userId, timestamp)) {
+        if (!kafkaProducerService.sendMessage(queueType, userId, timestamp, (requestTimestamp * 1000).toLong())) {
             throw ReserveException(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.KAFKA_PRODUCE_FAILED)
         }
 
