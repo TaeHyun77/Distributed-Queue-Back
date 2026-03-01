@@ -21,10 +21,11 @@ class KafkaProducerService (
     suspend fun sendMessage(
         queueType: String,
         userId: String,
-        timeStamp: Double
+        timeStamp: Double,
+        requestedAt: Long
     ): Boolean {
         try {
-            val message = KafkaMessage(queueType, userId, timeStamp)
+            val message = KafkaMessage(queueType, userId, timeStamp, requestedAt)
             val jsonMessage = objectMapper.writeValueAsString(message)
 
             kafkaTemplate.send(queueEventTopicName, jsonMessage)

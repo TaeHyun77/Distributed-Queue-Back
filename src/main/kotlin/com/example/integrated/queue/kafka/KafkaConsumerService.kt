@@ -7,41 +7,82 @@ import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
 import com.example.integrated.util.readValueFromJson
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.springframework.kafka.annotation.DltHandler
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.reactor.mono
+import kotlinx.coroutines.runBlocking
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.kafka.annotation.KafkaListener
-import org.springframework.kafka.annotation.RetryableTopic
-import org.springframework.kafka.retrytopic.SameIntervalTopicReuseStrategy
-import org.springframework.kafka.support.KafkaHeaders
-import org.springframework.messaging.handler.annotation.Header
-import org.springframework.retry.annotation.Backoff
+import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Service
+import reactor.core.publisher.Mono
 
 @Service
 class KafkaConsumerService(
     private val objectMapper: ObjectMapper,
     private val queueService: QueueService,
     private val queueToAllowScheduler: QueueToAllowScheduler,
-    private val redisPublisher: RedisPublisher
+    private val redisPublisher: RedisPublisher,
+    private val kafkaTemplate: KafkaTemplate<String, String>,
+    @Value("\${queue.event.topic.name}") private val topicName: String
 ): Loggable {
 
-    /*
-    * "queueing-system" 토픽으로 produce 된 이벤트를 consume
-    * group-id를 지정하지 않으면, spring.kafka.consumer.group-id 설정 값으로 자동 적용됨
-    * */
+    companion object {
+        private const val MAX_RETRIES = 5
+        private val BACKOFF_DELAYS = longArrayOf(1000, 2000, 4000, 8000, 12000)
+    }
+
     @KafkaListener(
         topics = ["\${queue.event.topic.name}"],
-        containerFactory = "kafkaListenerContainerFactory"
+        containerFactory = "kafkaListenerContainerFactory",
+        concurrency = "1"
     )
-    @RetryableTopic( // Redis failover 시간(~15초)을 커버하도록 exponential backoff 적용, 최종 실패 시 DLT로 이동
-        attempts = "6", // 첫 시도 1회 + 재시도 5회
-        backoff = Backoff(delay = 1000, multiplier = 2.0, maxDelay = 12000), //
-        sameIntervalTopicReuseStrategy = SameIntervalTopicReuseStrategy.SINGLE_TOPIC,
-        autoCreateTopics = "true",
-    )
-    suspend fun consumeMessage(
-        message: String
+    fun consumeBatch(
+        messages: List<ConsumerRecord<String, String>>,
+        acknowledgment: Acknowledgment
     ) {
-        handleMessage(message)
+        runBlocking {
+            coroutineScope {
+                messages.map { record ->
+                    async { processWithRetry(record) }
+                }.awaitAll()
+            }
+        }
+        acknowledgment.acknowledge()
+    }
+
+    private suspend fun processWithRetry(record: ConsumerRecord<String, String>) {
+        var lastException: Exception? = null
+
+        for (attempt in 0..MAX_RETRIES) {
+            try {
+                handleMessage(record.value())
+                return
+            } catch (e: Exception) {
+                lastException = e
+                if (attempt < MAX_RETRIES) {
+                    val delayMs = BACKOFF_DELAYS[attempt]
+                    log.warn { "메시지 처리 실패 (시도 ${attempt + 1}/${MAX_RETRIES + 1}), ${delayMs}ms 후 재시도: ${e.message}" }
+                    delay(delayMs)
+                }
+            }
+        }
+
+        log.error(lastException) { "최대 재시도 초과, DLT로 전송: key=${record.key()}" }
+        sendToDlt(record)
+    }
+
+    private fun sendToDlt(record: ConsumerRecord<String, String>) {
+        try {
+            kafkaTemplate.send("$topicName-dlt", record.key(), record.value())
+            log.info { "DLT 전송 완료: topic=$topicName-dlt, key=${record.key()}" }
+        } catch (e: Exception) {
+            log.error(e) { "DLT 전송 실패: key=${record.key()}" }
+        }
     }
 
     private suspend fun handleMessage(message: String) {
@@ -53,23 +94,12 @@ class KafkaConsumerService(
             consumeMessage.timeStamp
         )
 
-        // set이므로 중복 추가해도 상관 없음 - 매번 호출하여 활성화 보장하도록 하기
-        queueToAllowScheduler.addActiveQueue(consumeMessage.queueType)
-
-        redisPublisher.publish(CHANNEL_NAME, consumeMessage.queueType)
-    }
-
-    @DltHandler
-    fun handleDltMessage(
-        @Header(KafkaHeaders.RECEIVED_TOPIC) dltTopicName: String,
-        @Header(KafkaHeaders.EXCEPTION_MESSAGE) errorMessage: String?,
-    ) {
-        try {
-            log.error {
-                "DLT 토픽에 메세지 저장 , DLT Topic: $dltTopicName , Error Message: $errorMessage"
-            }
-        } catch (e: Exception) {
-            log.error(e) { "DLT 메시지 처리 중 에러 발생" }
+        if (consumeMessage.requestedAt > 0) {
+            val e2eDuration = System.currentTimeMillis() - consumeMessage.requestedAt
+            log.info { "E2E completed duration=${e2eDuration}ms userId=${consumeMessage.userId}" }
         }
+
+        queueToAllowScheduler.addActiveQueue(consumeMessage.queueType)
+        redisPublisher.publish(CHANNEL_NAME, consumeMessage.queueType)
     }
 }
