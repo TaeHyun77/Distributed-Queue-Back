@@ -1,5 +1,6 @@
-package com.example.integrated.queue.kafka
+package com.example.integrated.queue.kafka.service
 
+import com.example.integrated.queue.kafka.dto.KafkaMessageDto
 import com.example.integrated.queue.queue.QueueService
 import com.example.integrated.queue.queue.QueueToAllowScheduler
 import com.example.integrated.redis.pubsub.RedisPublisher
@@ -11,7 +12,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.reactor.mono
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.beans.factory.annotation.Value
@@ -19,31 +19,30 @@ import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.kafka.support.Acknowledgment
 import org.springframework.stereotype.Service
-import reactor.core.publisher.Mono
 
 @Service
 class KafkaConsumerService(
-    private val objectMapper: ObjectMapper,
-    private val queueService: QueueService,
-    private val queueToAllowScheduler: QueueToAllowScheduler,
-    private val redisPublisher: RedisPublisher,
-    private val kafkaTemplate: KafkaTemplate<String, String>,
-    @Value("\${queue.event.topic.name}") private val topicName: String
+        private val objectMapper: ObjectMapper,
+        private val queueService: QueueService,
+        private val queueToAllowScheduler: QueueToAllowScheduler,
+        private val redisPublisher: RedisPublisher,
+        private val kafkaTemplate: KafkaTemplate<String, String>,
+        @Value("\${queue.event.topic.name}") private val topicName: String
 ): Loggable {
 
     companion object {
-        private const val MAX_RETRIES = 5
-        private val BACKOFF_DELAYS = longArrayOf(1000, 2000, 4000, 8000, 12000)
+        private const val MAX_RETRIES = 5 // 재시도 횟수
+        private val BACKOFF_DELAYS = longArrayOf(1000, 2000, 4000, 8000, 12000) // 재시도 간 간격
     }
 
     @KafkaListener(
-        topics = ["\${queue.event.topic.name}"],
-        containerFactory = "kafkaListenerContainerFactory",
-        concurrency = "1"
+            topics = ["\${queue.event.topic.name}"],
+            containerFactory = "kafkaListenerContainerFactory",
+            concurrency = "1"
     )
     fun consumeBatch(
-        messages: List<ConsumerRecord<String, String>>,
-        acknowledgment: Acknowledgment
+            messages: List<ConsumerRecord<String, String>>,
+            acknowledgment: Acknowledgment
     ) {
         runBlocking {
             coroutineScope {
@@ -52,7 +51,7 @@ class KafkaConsumerService(
                 }.awaitAll()
             }
         }
-        acknowledgment.acknowledge()
+        acknowledgment.acknowledge() // 이를 통해 offset 커밋
     }
 
     private suspend fun processWithRetry(record: ConsumerRecord<String, String>) {
@@ -86,12 +85,12 @@ class KafkaConsumerService(
     }
 
     private suspend fun handleMessage(message: String) {
-        val consumeMessage = objectMapper.readValueFromJson<KafkaMessage>(message)
+        val consumeMessage = objectMapper.readValueFromJson<KafkaMessageDto>(message)
 
         queueService.enqueueToWaitQueue(
-            consumeMessage.queueType,
-            consumeMessage.userId,
-            consumeMessage.timeStamp
+                consumeMessage.queueType,
+                consumeMessage.userId,
+                consumeMessage.timeStamp
         )
 
         if (consumeMessage.requestedAt > 0) {

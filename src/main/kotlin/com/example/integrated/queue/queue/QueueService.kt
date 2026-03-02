@@ -1,7 +1,7 @@
 package com.example.integrated.queue.queue
 
 import com.example.integrated.queue.duplication.DuplicationCheckService
-import com.example.integrated.queue.kafka.KafkaProducerService
+import com.example.integrated.queue.kafka.service.KafkaProducerService
 import com.example.integrated.queue.queue.dto.RegisterResult
 import com.example.integrated.redis.pubsub.RedisPublisher
 import com.example.integrated.reserveException.ErrorCode
@@ -29,14 +29,14 @@ import javax.crypto.spec.SecretKeySpec
 
 @Service
 class QueueService (
-    @Value("\${queue.validation.key}")
+        @Value("\${queue.validation.key}")
     private val validationKey: String,
 
-    private val kafkaProducerService: KafkaProducerService,
-    private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
-    private val duplicationCheckService: DuplicationCheckService,
+        private val kafkaProducerService: KafkaProducerService,
+        private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
+        private val duplicationCheckService: DuplicationCheckService,
 
-    private val redisPublisher: RedisPublisher
+        private val redisPublisher: RedisPublisher
 ): Loggable {
 
     // 대기열 등록
@@ -219,11 +219,11 @@ class QueueService (
     // Nginx 타임스탬프가 없는 경우 (직접 호출 등) Redis 순번만 사용
     suspend fun generateScore(requestTimestamp: Double): Double {
         val seq = reactiveRedisTemplate.opsForValue()
-            .increment("queue:seq")
-            .awaitSingle()
+                .increment("queue:seq")
+                .awaitSingle()
 
-        val timestampSec = requestTimestamp.toLong()
-        return timestampSec * 10000.0 + (seq % 10000)
+        val timestampMs = (requestTimestamp * 1000).toLong()
+        return timestampMs * 1000.0 + (seq % 1000)
     }
 
     // 타겟 페이지에 접속했을 때, 입장 가능 기간과 쿠키에 저장된 토큰의 유효성을 검증하는 로직

@@ -1,7 +1,7 @@
-package com.example.integrated.queue.kafka
+package com.example.integrated.queue.kafka.service
 
+import com.example.integrated.queue.kafka.dto.KafkaMessageDto
 import com.example.integrated.util.Loggable
-import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.ObjectMapper
 import kotlinx.coroutines.future.await
 import org.springframework.beans.factory.annotation.Value
@@ -25,7 +25,7 @@ class KafkaProducerService (
         requestedAt: Long
     ): Boolean {
         try {
-            val message = KafkaMessage(queueType, userId, timeStamp, requestedAt)
+            val message = KafkaMessageDto(queueType, userId, timeStamp, requestedAt)
             val jsonMessage = objectMapper.writeValueAsString(message)
 
             kafkaTemplate.send(queueEventTopicName, jsonMessage)
