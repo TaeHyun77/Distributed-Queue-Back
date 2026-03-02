@@ -1,6 +1,6 @@
-package com.example.integrated.queue.kafka
+package com.example.integrated.queue.kafka.dto
 
-data class KafkaMessage (
+data class KafkaMessageDto (
     val queueType: String,
 
     val userId: String,

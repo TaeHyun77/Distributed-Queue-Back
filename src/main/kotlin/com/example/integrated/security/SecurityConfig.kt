@@ -21,6 +21,7 @@ class SecurityConfig {
             .authorizeExchange { exchanges ->
                 exchanges
                     .pathMatchers("/queue/**").permitAll()
+                    .pathMatchers("/actuator/**").permitAll()
                     .anyExchange().authenticated()
             }
             .build()
