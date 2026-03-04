@@ -13,8 +13,10 @@ import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.core.io.ClassPathResource
 import org.springframework.data.redis.core.DefaultTypedTuple
 import org.springframework.data.redis.core.ReactiveRedisTemplate
+import org.springframework.data.redis.core.script.RedisScript
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseCookie
 import org.springframework.http.ResponseEntity
@@ -30,14 +32,21 @@ import javax.crypto.spec.SecretKeySpec
 @Service
 class QueueService (
         @Value("\${queue.validation.key}")
-    private val validationKey: String,
+        private val validationKey: String,
 
         private val kafkaProducerService: KafkaProducerService,
-        private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
         private val duplicationCheckService: DuplicationCheckService,
-
-        private val redisPublisher: RedisPublisher
+        private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
 ): Loggable {
+
+    companion object {
+        // Lua 스크립트 : 대기열/참가열 존재 확인 + 등록 진행 중 플래그 + 밀리초별 독립 Score 생성을 원자적으로 수행
+        // 반환 값: -1 ( 대기열 존재 ), -2 ( 참가열 존재 ), -3 ( 등록 진행 중 ), 양수 ( 생성된 score )
+        private val GENERATE_SCORE_SCRIPT: RedisScript<Long> = RedisScript.of(
+            ClassPathResource("scripts/generate-score.lua"),
+            Long::class.java
+        )
+    }
 
     // 대기열 등록
     suspend fun registerUserToWaitQueue(
@@ -46,26 +55,42 @@ class QueueService (
         requestKey: String,
         requestTimestamp: Double
     ): RegisterResult {
-
-        // Nginx 도착 시각 기반 score 생성 ( 동일 밀리초 내에서는 Redis INCR로 순서 구분 )
-        val timestamp: Double = generateScore(requestTimestamp)
-
         // 1. 중복된 요청인지 확인
         if (duplicationCheckService.isDuplicate(requestKey)) {
             return RegisterResult.DUPLICATE_REQUEST
         }
 
-        // 2. 이미 대기 or 참가열에 사용자가 존재하는지 확인
-        if (isUserInQueue(queueType, userId)) {
-            return RegisterResult.ALREADY_REGISTERED
-        }
+        // 2. "대기열/참가열 존재 확인"과 "Score 생성"을 원자적으로 수행 ( Lua 스크립트 )
+        // 원자적으로 수행함으로써 race condition을 방지
+        val timestampMs = (requestTimestamp * 1000).toLong()
 
-        // 3. 카프카로 대기열 삽입 이벤트 전달
-        if (!kafkaProducerService.sendMessage(queueType, userId, timestamp, (requestTimestamp * 1000).toLong())) {
-            throw ReserveException(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.KAFKA_PRODUCE_FAILED)
+        return when (val score = executeScoreGeneration(queueType, userId, timestampMs)) {
+            -1L, -2L, -3L -> RegisterResult.ALREADY_REGISTERED
+            else -> {
+                // 3. 카프카로 대기열 삽입 이벤트 전달
+                kafkaProducerService.sendMessage(queueType, userId, score.toDouble(), timestampMs)
+                RegisterResult.SUCCESS
+            }
         }
+    }
 
-        return RegisterResult.SUCCESS
+    // 대기열 or 참가열 존재 확인 + 등록 진행 중 플래그 + Score 생성 ( 원자적 진행 )
+    private suspend fun executeScoreGeneration(
+        queueType: String,
+        userId: String,
+        timestampMs: Long
+    ): Long {
+        val keys = listOf(
+            "$queueType$WAIT_QUEUE",    // KEYS[1] : 대기열 키
+            "$queueType$ALLOW_QUEUE",   // KEYS[2] : 참가열 키
+            "queue:seq:$timestampMs",   // KEYS[3] : 밀리초별 카운터 키
+            "registering:$queueType:$userId"    // KEYS[4] : 등록 진행 중 플래그
+        )
+        val args = listOf(userId, timestampMs.toString())
+
+        return reactiveRedisTemplate.execute(GENERATE_SCORE_SCRIPT, keys, args)
+            .next()
+            .awaitSingle()
     }
 
     // 대기열에 사용자 삽입
@@ -81,22 +106,11 @@ class QueueService (
             .awaitSingle()
     }
 
-    // 대기열 또는 참가열에 사용자가 존재하는지 병렬 조회
-    private suspend fun isUserInQueue(
-        queueType: String,
-        userId: String,
-    ): Boolean = coroutineScope {
-        val waitRankDeferred = async { getWaitQueueRank(queueType, userId) }
-        val allowRankDeferred = async { getAllowQueueRank(queueType, userId) }
-
-        waitRankDeferred.await() >= 0L || allowRankDeferred.await() >= 0L
-    }
-
-    // 대기열에서 사용자 순위 조회 (존재하지 않으면 -1L)
+    // 대기열에서 사용자 순위 조회 ( 존재하지 않으면 -1L )
     suspend fun getWaitQueueRank(queueType: String, userId: String): Long =
         getQueueRank("$queueType$WAIT_QUEUE", userId)
 
-    // 참가열에서 사용자 순위 조회 (존재하지 않으면 -1L)
+    // 참가열에서 사용자 순위 조회 ( 존재하지 않으면 -1L )
     suspend fun getAllowQueueRank(queueType: String, userId: String): Long =
         getQueueRank("$queueType$ALLOW_QUEUE", userId)
 
@@ -139,26 +153,33 @@ class QueueService (
             .awaitSingle() > 0
     }
 
-    // 토큰을 쿠키에 저장
-    fun issueAccessTokenCookie(
+    /* 토큰을 쿠키에 저장
+    * 참가열로 이동하면 유효성 인증을 위해 토큰을 생성하여 쿠키에 저장합니다.
+    * 이후 타겟 페이지로 이동했을 때, 쿠키에 저장된 토큰과 서버에서 생성한 토큰을 비교하여 유효성을 검증합니다.
+    */
+    suspend fun issueAccessTokenCookie(
         queueType: String,
         userId: String,
         response: ServerHttpResponse
     ): ResponseEntity<String> {
+        // 참가열에 존재하는지 확인
+        if (isAllowTokenExpired(queueType, userId)) {
+            val encodedName = URLEncoder.encode(userId, StandardCharsets.UTF_8)
+            val cookieName = "reserve-user-access-cookie-$encodedName"
 
-        val encodedName = URLEncoder.encode(userId, StandardCharsets.UTF_8)
-        val cookieName = "reserve-user-access-cookie-$encodedName"
+            val token = createAccessToken(queueType, userId)
 
-        val token = createAccessToken(queueType, userId)
+            val responseCookie = ResponseCookie.from(cookieName, token)
+                .path("/")
+                .maxAge(Duration.ofSeconds(600))
+                .build()
 
-        val responseCookie = ResponseCookie.from(cookieName, token)
-            .path("/")
-            .maxAge(Duration.ofSeconds(600))
-            .build()
+            response.addCookie(responseCookie)
 
-        response.addCookie(responseCookie)
-
-        return ResponseEntity.ok("쿠키 발급 완료")
+            return ResponseEntity.ok("쿠키 발급 완료")
+        } else {
+            throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.FAILED_TO_STORE_TOKEN_IN_COOKIE)
+        }
     }
 
     // 인증을 위한 토큰 생성
@@ -177,53 +198,8 @@ class QueueService (
             return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
         } catch (e: Exception) {
             log.error(e) { "토큰 생성 중 에러 발생." }
-
             throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.FAIL_TO_GENERATE_TOKEN)
         }
-    }
-
-    // 대기열 -> 참가열 이동 로직
-    suspend fun allowUser(
-        queueType: String,
-        count: Long
-    ): Int {
-        val waitQueueKey = "$queueType$WAIT_QUEUE"
-
-        val poppedUsers = reactiveRedisTemplate.opsForZSet()
-            .popMin(waitQueueKey, count)
-            .collectList()
-            .awaitSingle() // 값이 있으면 List<T> 반환, 값이 없으면 빈 List 반환
-
-        if (poppedUsers.isEmpty()) return 0
-
-        val allowQueueKey = "$queueType$ALLOW_QUEUE"
-
-        val expireAt = System.currentTimeMillis() + Duration.ofMinutes(10).toMillis()
-
-        // 개별적으로 add 하는 것이 아닌 한 번에 하도록
-        val tuples = poppedUsers.map { user ->
-            DefaultTypedTuple(user.value.toString(), expireAt.toDouble())
-        }.toSet()
-
-        reactiveRedisTemplate.opsForZSet()
-            .addAll(allowQueueKey, tuples)
-            .awaitSingle()
-
-        redisPublisher.publish(CHANNEL_NAME, queueType)
-
-
-        return poppedUsers.size
-    }
-
-    // Nginx 도착 시각 + Redis 순번으로 score 생성
-    // Nginx 타임스탬프가 없는 경우 (직접 호출 등) Redis 순번만 사용
-    suspend fun generateScore(requestTimestamp: Double): Double {
-        val seq = reactiveRedisTemplate.opsForValue()
-                .increment("queue:seq")
-                .awaitSingle()
-
-        val timestampMs = (requestTimestamp * 1000).toLong()
-        return timestampMs * 1000.0 + (seq % 1000)
     }
 
     // 타겟 페이지에 접속했을 때, 입장 가능 기간과 쿠키에 저장된 토큰의 유효성을 검증하는 로직
@@ -234,8 +210,7 @@ class QueueService (
         token: String
     ): Boolean = !(isAllowTokenExpired(queueType, userId) || isTokenMismatch(queueType, userId, token))
 
-    // 참가열에서의 사용자 TTL 만료 여부 조회
-    // 만료 시 true 반환
+    // 참가열에서의 사용자 TTL 만료 여부 조회, 만료 시 true 반환
     suspend fun isAllowTokenExpired(
         queueType: String,
         userId: String
@@ -252,8 +227,7 @@ class QueueService (
         return score < now
     }
 
-    // 토큰의 유효성 판별 로직
-    // 유효하지 않다면 true 반환
+    // 토큰의 유효성 판별 로직, 유효하지 않다면 true 반환
     private fun isTokenMismatch(
         queueType: String,
         userId: String,

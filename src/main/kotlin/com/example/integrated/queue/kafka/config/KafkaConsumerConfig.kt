@@ -14,7 +14,7 @@ import org.springframework.kafka.listener.ContainerProperties
 @Configuration
 class KafkaConsumerConfig(
         private val env: Environment,
-): Loggable {
+) {
 
     @Bean
     fun consumerConfig(): Map<String, Any> {
