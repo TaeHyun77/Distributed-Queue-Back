@@ -36,12 +36,11 @@ class QueueController (
             ?.firstOrNull()
             ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_REQUEST_KEY)
 
-        val requestTimestamp = header.headers.getFirst("X-Request-Timestamp")!!.toDouble()
+        val requestTimestamp = header.headers.getFirst("X-Request-Timestamp")
+                ?.toDoubleOrNull()
+                ?: (System.currentTimeMillis() / 1000.0)
 
-        log.info { "queue-server-name: $serverName" }
-        log.info { "대기열 등록 사용자 정보 , userId: $userId, queueType: $queueType , requestKey: $requestKey" }
-        log.info { "requestTimestamp : $requestTimestamp" }
-
+        log.info { "대기열 등록 요청: server=$serverName, userId=$userId, queueType=$queueType, requestKey=$requestKey, timestamp=$requestTimestamp" }
         return queueService.registerUserToWaitQueue(queueType, userId, requestKey, requestTimestamp)
     }
 
@@ -59,7 +58,7 @@ class QueueController (
 
     // 쿠키에 토큰 전달
     @GetMapping("/create/cookie")
-    fun issueAccessTokenCookie(
+    suspend fun issueAccessTokenCookie(
         @RequestParam queueType: String,
         @RequestParam userId: String,
         response: ServerHttpResponse

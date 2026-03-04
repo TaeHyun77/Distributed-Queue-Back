@@ -1,42 +1,46 @@
 package com.example.integrated.queue.kafka.service
 
 import com.example.integrated.queue.kafka.dto.KafkaMessageDto
+import com.example.integrated.reserveException.ErrorCode
+import com.example.integrated.reserveException.ReserveException
 import com.example.integrated.util.Loggable
 import com.fasterxml.jackson.databind.ObjectMapper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.await
+import kotlinx.coroutines.withContext
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpStatus
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.stereotype.Service
+import kotlin.coroutines.cancellation.CancellationException
 
 @Service
 class KafkaProducerService (
 
     @Value("\${queue.event.topic.name}")
-    private var queueEventTopicName: String,
+    private val queueTopic: String,
 
     private val kafkaTemplate: KafkaTemplate<String, String>,
     private val objectMapper: ObjectMapper
 ): Loggable {
 
     suspend fun sendMessage(
-        queueType: String,
-        userId: String,
-        timeStamp: Double,
-        requestedAt: Long
-    ): Boolean {
+            queueType: String,
+            userId: String,
+            timeStamp: Double,
+            requestedAt: Long
+    ) {
+        val message = KafkaMessageDto(queueType, userId, timeStamp, requestedAt)
+        val jsonMessage = objectMapper.writeValueAsString(message)
+
         try {
-            val message = KafkaMessageDto(queueType, userId, timeStamp, requestedAt)
-            val jsonMessage = objectMapper.writeValueAsString(message)
-
-            kafkaTemplate.send(queueEventTopicName, jsonMessage)
-                .await()
-
-            log.info { "Kafka produce 성공" }
-            return true
-
+            kafkaTemplate.send(queueTopic, userId, jsonMessage).await()
+            log.info { "Kafka produce 성공: userId=$userId, queueType=$queueType" }
+        } catch (e: CancellationException) {
+            throw e  // 코루틴 취소는 재전파
         } catch (e: Exception) {
-            log.error(e) { "Kafka produce 실패" }
-            return false
+            log.error(e) { "Kafka produce 실패: userId=$userId, queueType=$queueType" }
+            throw ReserveException(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.FAIL_TO_PRODUCE_KAFKA)
         }
     }
 }

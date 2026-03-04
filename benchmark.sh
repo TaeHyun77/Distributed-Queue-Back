@@ -3,35 +3,27 @@
 #  E2E Benchmark Script
 #  - k6 → Kafka → Consumer → Redis 전체 파이프라인 측정
 #
-#  E2E Duration: 개별 요청이 HTTP 진입 → Kafka produce → consume → Redis write
-#                까지 걸리는 시간 (애플리케이션 로그의 "E2E completed" 기준)
-#  소요시간: load_test 시작 → 모든 요청 consume 완료까지의 wall clock 시간
+#  Round 1은 JVM 예열 라운드로 취급하여 통계에서 제외
+#  Round 2 이후의 결과만으로 성능을 평가
 ###############################################
 
 ROUNDS=5
+WARMUP_ROUNDS=1
 QUEUE_KEY="concert:user-queue:wait"
 REDIS="queue-redis-master"
 CONTAINERS=("queueing01" "queueing02" "queueing03")
 
-# k6 시나리오 설정값
-EXPECTED_WARMUP=200
 EXPECTED_LOAD=3000
-EXPECTED_TOTAL=$((EXPECTED_LOAD + EXPECTED_WARMUP))
 
-# consume 완료 대기 최대 시간 (초)
 TIMEOUT_SECONDS=120
-# 진행 정체 판단 기준 (초) — 이 시간 동안 변화 없으면 종료
 STALL_LIMIT=30
 
-# 결과 저장 디렉토리
 RESULT_DIR="/tmp/bench_results"
 mkdir -p "$RESULT_DIR"
 
-# 최종 요약용 배열
 declare -a ROUND_TIMES
-declare -a ROUND_PRODUCED
-declare -a ROUND_CONSUMED
 declare -a ROUND_LOAD_TARGET
+declare -a ROUND_CONSUMED
 
 #  --- 유틸 함수 ---
 
@@ -39,7 +31,6 @@ now_rfc3339() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
-# k6 출력에서 전체 http_reqs 수 파싱
 parse_http_reqs() {
     local k6_file="$1"
     awk '/http_reqs/ && !/phase/ {
@@ -50,21 +41,6 @@ parse_http_reqs() {
     }' "$k6_file"
 }
 
-# k6 출력에서 phase:test 실제 건수 파싱
-# http_req_duration의 phase:test 서브라인에서 count=N 추출
-# 예: ✓ { phase:test }...: avg=19.27ms ... count=3001
-parse_load_reqs() {
-    local k6_file="$1"
-    awk '/phase:test/ && /count=/ {
-        match($0, /count=[0-9]+/)
-        if (RSTART > 0) {
-            print substr($0, RSTART + 6, RLENGTH - 6)
-            exit
-        }
-    }' "$k6_file"
-}
-
-# 모든 컨테이너에서 특정 시점 이후 "E2E completed" 로그 수 합산
 count_e2e_logs() {
     local since="$1"
     local total=0
@@ -76,7 +52,6 @@ count_e2e_logs() {
     echo "$total"
 }
 
-# 모든 컨테이너에서 E2E 로그를 파일로 수집
 collect_e2e_logs() {
     local since="$1"
     local outfile="$2"
@@ -86,7 +61,6 @@ collect_e2e_logs() {
     done
 }
 
-# E2E duration 통계 계산
 print_e2e_stats() {
     local logfile="$1"
     grep "E2E completed" "$logfile" \
@@ -113,15 +87,19 @@ print_e2e_stats() {
 #  --- 메인 벤치마크 루프 ---
 
 echo "========================================"
-echo "  벤치마크 시작 (총 ${ROUNDS}회)"
-echo "  요청: warmup ${EXPECTED_WARMUP} + load ${EXPECTED_LOAD} = ${EXPECTED_TOTAL}건"
+echo "  벤치마크 시작 (총 ${ROUNDS}회, 예열 ${WARMUP_ROUNDS}회)"
+echo "  요청: ${EXPECTED_LOAD}건/라운드 (300 RPS × 10초)"
 echo "  타임아웃: ${TIMEOUT_SECONDS}초 / 정체 감지: ${STALL_LIMIT}초"
 echo "========================================"
 
 for ((round=1; round<=ROUNDS; round++)); do
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  Round $round / $ROUNDS"
+    if [ "$round" -le "$WARMUP_ROUNDS" ]; then
+        echo "  Round $round / $ROUNDS  (JVM 예열)"
+    else
+        echo "  Round $round / $ROUNDS"
+    fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     # ── 1. Redis 초기화 ──
@@ -144,30 +122,16 @@ for ((round=1; round<=ROUNDS; round++)); do
     echo "  k6 실행 완료: ${K6_DURATION_MS}ms"
 
     # ── 4. 실제 요청 수 파싱 ──
-    ACTUAL_REQS=$(parse_http_reqs "${RESULT_DIR}/k6_round_${round}.txt")
+    LOAD_REQS=$(parse_http_reqs "${RESULT_DIR}/k6_round_${round}.txt")
 
-    if [ -z "$ACTUAL_REQS" ] || [ "$ACTUAL_REQS" -eq 0 ] 2>/dev/null; then
-        echo "  ⚠ k6 http_reqs 파싱 실패, 기대값(${EXPECTED_TOTAL}) 사용"
-        ACTUAL_REQS=$EXPECTED_TOTAL
-    else
-        echo "  k6 실제 요청 수: ${ACTUAL_REQS}건"
-    fi
-
-    # phase:test 실제 건수 파싱 (warmup 제외된 정확한 load 수)
-    LOAD_REQS=$(parse_load_reqs "${RESULT_DIR}/k6_round_${round}.txt")
     if [ -z "$LOAD_REQS" ] || [ "$LOAD_REQS" -eq 0 ] 2>/dev/null; then
-        LOAD_REQS=$((ACTUAL_REQS - EXPECTED_WARMUP))
-        echo "  ⚠ phase:test 파싱 실패, 추정값 사용: ${LOAD_REQS}건"
+        echo "  ⚠ k6 http_reqs 파싱 실패, 기대값(${EXPECTED_LOAD}) 사용"
+        LOAD_REQS=$EXPECTED_LOAD
     else
-        echo "  load_test 실제 요청: ${LOAD_REQS}건"
+        echo "  k6 실제 요청 수: ${LOAD_REQS}건"
     fi
 
-    ROUND_PRODUCED[$round]=$ACTUAL_REQS
     ROUND_LOAD_TARGET[$round]=$LOAD_REQS
-
-    # load_test 시작 시각: warmup(5s) + startTime gap(2s) = k6 시작 후 7초
-    LOAD_START_EPOCH=$((K6_START_EPOCH + 7000))
-    LOAD_START_SINCE=$(date -u -d @$((LOAD_START_EPOCH / 1000)) +"%Y-%m-%dT%H:%M:%SZ")
 
     # ── 5. Consume 완료 대기 ──
     echo "[4/5] consume 완료 대기 중... (목표: ${LOAD_REQS}건, 타임아웃: ${TIMEOUT_SECONDS}초)"
@@ -178,19 +142,17 @@ for ((round=1; round<=ROUNDS; round++)); do
     TIMED_OUT=false
 
     while true; do
-        E2E_NOW=$(count_e2e_logs "$LOAD_START_SINCE")
+        E2E_NOW=$(count_e2e_logs "$ROUND_SINCE")
         ELAPSED=$(( $(date +%s) - WAIT_START ))
 
         printf "\r  E2E 처리: %d / %d  (경과: %ds)  " "$E2E_NOW" "$LOAD_REQS" "$ELAPSED"
 
-        # 목표 달성
         if [ "$E2E_NOW" -ge "$LOAD_REQS" ]; then
             echo ""
             echo "  ✓ 모든 요청 consume 완료"
             break
         fi
 
-        # 타임아웃 체크
         if [ "$ELAPSED" -ge "$TIMEOUT_SECONDS" ]; then
             echo ""
             echo "  ✗ 타임아웃! ${E2E_NOW}/${LOAD_REQS}건 처리됨 (${TIMEOUT_SECONDS}초 초과)"
@@ -198,7 +160,6 @@ for ((round=1; round<=ROUNDS; round++)); do
             break
         fi
 
-        # 진행 정체 감지 — STALL_LIMIT 초간 변화 없으면 종료
         if [ "$E2E_NOW" -ne "$LAST_COUNT" ]; then
             LAST_COUNT="$E2E_NOW"
             STALL_START=$(date +%s)
@@ -213,22 +174,22 @@ for ((round=1; round<=ROUNDS; round++)); do
     done
 
     CONSUME_END_EPOCH=$(date +%s%3N)
-    TOTAL_E2E_MS=$((CONSUME_END_EPOCH - LOAD_START_EPOCH))
+    TOTAL_E2E_MS=$((CONSUME_END_EPOCH - K6_START_EPOCH))
     TOTAL_E2E_SEC=$(awk "BEGIN {printf \"%.1f\", $TOTAL_E2E_MS / 1000}")
 
     ROUND_CONSUMED[$round]=$E2E_NOW
 
     if [ "$TIMED_OUT" = true ]; then
-        echo "  총 소요 시간 (load_test 시작 → 정체 감지): ${TOTAL_E2E_SEC}초"
+        echo "  총 소요 시간 (k6 시작 → 정체 감지): ${TOTAL_E2E_SEC}초"
     else
-        echo "  총 소요 시간 (load_test 시작 → 전체 consume 완료): ${TOTAL_E2E_SEC}초"
+        echo "  총 소요 시간 (k6 시작 → 전체 consume 완료): ${TOTAL_E2E_SEC}초"
     fi
 
     # ── 6. 로그 수집 및 통계 ──
     echo ""
     echo "[5/5] 결과 집계"
     E2E_LOG="${RESULT_DIR}/e2e_round_${round}.log"
-    collect_e2e_logs "$LOAD_START_SINCE" "$E2E_LOG"
+    collect_e2e_logs "$ROUND_SINCE" "$E2E_LOG"
 
     E2E_COUNT=$(wc -l < "$E2E_LOG" | tr -d ' ')
 
@@ -241,22 +202,18 @@ for ((round=1; round<=ROUNDS; round++)); do
     fi
     echo "  └──────────────────────────"
 
-    # Redis 최종 상태
     ZCARD=$(docker exec "$REDIS" redis-cli ZCARD "$QUEUE_KEY" 2>/dev/null)
     echo ""
     echo "  Redis ZCARD ($QUEUE_KEY): ${ZCARD:-N/A}"
 
-    # k6 HTTP 요약
     echo ""
     echo "  ┌─── k6 HTTP 요약 ───"
     grep -E "http_req_duration|http_reqs|checks" "${RESULT_DIR}/k6_round_${round}.txt" \
         | head -5 | sed 's/^/  │ /'
     echo "  └─────────────────────"
 
-    # 라운드 결과 저장
     ROUND_TIMES[$round]="$TOTAL_E2E_SEC"
 
-    # 다음 라운드 대기
     if [ "$round" -lt "$ROUNDS" ]; then
         echo ""
         echo "  다음 라운드까지 5초 대기..."
@@ -270,6 +227,7 @@ done
 echo ""
 echo "========================================"
 echo "  전체 벤치마크 요약"
+echo "  (Round 1은 JVM 예열, Round 2~${ROUNDS} 유효)"
 echo "========================================"
 echo ""
 printf "  %-7s │ %-10s │ %-10s │ %s\n" "Round" "소요시간" "목표(load)" "consume"
@@ -290,17 +248,26 @@ for ((r=1; r<=ROUNDS; r++)); do
     else
         STATUS=""
     fi
-    printf "    %d     │  %6s초   │  %5s건    │ %5s건%s\n" \
-        "$r" "${ROUND_TIMES[$r]}" "$TARGET" "$CONSUMED" "$STATUS"
+
+    if [ "$r" -le "$WARMUP_ROUNDS" ]; then
+        LABEL="(예열)"
+    else
+        LABEL=""
+    fi
+    printf "    %d     │  %6s초   │  %5s건    │ %5s건%s %s\n" \
+        "$r" "${ROUND_TIMES[$r]}" "$TARGET" "$CONSUMED" "$STATUS" "$LABEL"
 done
 
-# 전체 E2E 통계
+# 유효 라운드(예열 제외) E2E 통계
 echo ""
-echo "  ┌─── 전체 라운드 합산 E2E 통계 ───"
-cat "${RESULT_DIR}"/e2e_round_*.log > "${RESULT_DIR}/e2e_all.log"
-ALL_COUNT=$(wc -l < "${RESULT_DIR}/e2e_all.log" | tr -d ' ')
-if [ "$ALL_COUNT" -gt 0 ]; then
-    print_e2e_stats "${RESULT_DIR}/e2e_all.log"
+echo "  ┌─── 유효 라운드 (Round $((WARMUP_ROUNDS+1))~${ROUNDS}) E2E 통계 ───"
+> "${RESULT_DIR}/e2e_valid.log"
+for ((r=WARMUP_ROUNDS+1; r<=ROUNDS; r++)); do
+    cat "${RESULT_DIR}/e2e_round_${r}.log" >> "${RESULT_DIR}/e2e_valid.log" 2>/dev/null
+done
+VALID_COUNT=$(wc -l < "${RESULT_DIR}/e2e_valid.log" | tr -d ' ')
+if [ "$VALID_COUNT" -gt 0 ]; then
+    print_e2e_stats "${RESULT_DIR}/e2e_valid.log"
 fi
 echo "  └────────────────────────────────────"
 

@@ -13,7 +13,7 @@ import org.springframework.kafka.core.ProducerFactory
 class KafkaProducerConfig(
     private val env: Environment
 ) {
-
+    @Bean
     fun producerConfig(): Map<String, Any> {
         return mapOf(
             ProducerConfig.BOOTSTRAP_SERVERS_CONFIG to env.getProperty("spring.kafka.producer.bootstrap-servers")!!,
@@ -39,6 +39,7 @@ class KafkaProducerConfig(
         )
     }
 
+    @Bean
     fun producerFactory(): ProducerFactory<String, String> {
         return DefaultKafkaProducerFactory(producerConfig())
     }

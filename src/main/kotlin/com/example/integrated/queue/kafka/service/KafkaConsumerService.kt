@@ -1,8 +1,8 @@
 package com.example.integrated.queue.kafka.service
 
 import com.example.integrated.queue.kafka.dto.KafkaMessageDto
-import com.example.integrated.queue.queue.QueueService
-import com.example.integrated.queue.queue.QueueToAllowScheduler
+import com.example.integrated.queue.queue.scheduler.QueueScheduler
+import com.example.integrated.queue.queue.scheduler.QueueSchedulerService
 import com.example.integrated.redis.pubsub.RedisPublisher
 import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
@@ -23,8 +23,8 @@ import org.springframework.stereotype.Service
 @Service
 class KafkaConsumerService(
         private val objectMapper: ObjectMapper,
-        private val queueService: QueueService,
-        private val queueToAllowScheduler: QueueToAllowScheduler,
+        private val queueSchedulerService: QueueSchedulerService,
+        private val queueScheduler: QueueScheduler,
         private val redisPublisher: RedisPublisher,
         private val kafkaTemplate: KafkaTemplate<String, String>,
         @Value("\${queue.event.topic.name}") private val topicName: String
@@ -87,7 +87,8 @@ class KafkaConsumerService(
     private suspend fun handleMessage(message: String) {
         val consumeMessage = objectMapper.readValueFromJson<KafkaMessageDto>(message)
 
-        queueService.enqueueToWaitQueue(
+        // 하이브리드 승격 : 참가열 여유 시 직접 삽입, 아니면 대기열 삽입
+        val result = queueSchedulerService.enqueueOrAllow(
                 consumeMessage.queueType,
                 consumeMessage.userId,
                 consumeMessage.timeStamp
@@ -98,7 +99,14 @@ class KafkaConsumerService(
             log.info { "E2E completed duration=${e2eDuration}ms userId=${consumeMessage.userId}" }
         }
 
-        queueToAllowScheduler.addActiveQueue(consumeMessage.queueType)
+        if (result == 1L) {
+            // 참가열 직접 삽입 → 클라이언트에 즉시 입장 알림
+            log.info { "참가열 직접 삽입: userId=${consumeMessage.userId}, queueType=${consumeMessage.queueType}" }
+        } else {
+            // 대기열 삽입 → 스케줄러가 이후에 승격
+            queueScheduler.addActiveQueue(consumeMessage.queueType)
+        }
+
         redisPublisher.publish(CHANNEL_NAME, consumeMessage.queueType)
     }
 }
