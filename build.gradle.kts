@@ -39,10 +39,6 @@ dependencies {
 	// security 의존성
 	implementation("org.springframework.boot:spring-boot-starter-security")
 
-	// Mysql 의존성
-	// implementation("mysql:mysql-connector-java:8.0.33")
-	implementation ("org.springframework.boot:spring-boot-starter-data-r2dbc")
-	implementation("io.asyncer:r2dbc-mysql:1.1.0")
 
 	// log 의존성
 	implementation("io.github.oshai:kotlin-logging-jvm:5.1.4")

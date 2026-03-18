@@ -1,11 +1,24 @@
-# Java 17 환경 사용
-FROM amazoncorretto:17-alpine
+FROM amazoncorretto:17 AS builder
 
-# 컨테이너 내 작업 디렉토리
 WORKDIR /app
 
-# 빌드 결과물 복사
-COPY build/libs/Integrated-0.0.1-SNAPSHOT.jar integrated-queueing.jar
+COPY gradlew .
+COPY gradle gradle
+COPY build.gradle.kts settings.gradle.kts ./
 
-# 애플리케이션 실행
-CMD ["java", "-jar", "integrated-queueing.jar"]
+RUN chmod +x ./gradlew && ./gradlew dependencies --no-daemon || true
+
+COPY src src
+RUN ./gradlew clean bootJar -x test --no-daemon
+
+# ===== 실행 스테이지 =====
+FROM amazoncorretto:17-alpine
+
+RUN apk add --no-cache curl
+
+WORKDIR /app
+COPY --from=builder /app/build/libs/*.jar app.jar
+
+EXPOSE 8081
+
+ENTRYPOINT ["java", "-jar", "app.jar"]

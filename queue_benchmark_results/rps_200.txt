@@ -1,0 +1,14 @@
+rps=200
+success=2002
+fail=0
+duplicate=0
+success_rate=100.0
+http_avg=48.03
+http_p95=101.23
+http_p99=164.72
+http_max=253.11
+consume_sec=13.0
+e2e_avg=74.55
+e2e_p95=197
+e2e_max=395
+throughput=154.0

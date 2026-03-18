@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 응답 언어 지침
 
-- 모든 결과값, 설명, 주석, 커밋 메시지, PR 설명 등은 반드시 **한글**로 작성한다.
+- 모든 결과값, 설명, 주석, 커밋 메시지, PR 설명 등은 반드시 한글로 작성한다.
 - 코드 내 변수명, 함수명, 클래스명 등 식별자는 영문을 유지하되, 그 외 사람이 읽는 텍스트는 한글로 작성한다.
 
 ## Project Overview
