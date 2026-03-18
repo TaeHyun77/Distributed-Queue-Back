@@ -42,7 +42,7 @@ Etc : SSE, Redis pub/sub<br><br>
 
 3. Kafka Cluster와 Redis Sentinel 기반 Replica 구조를 구성하여 고가용성을 확보하였습니다.
 
-4. Kafka consume 과정에서 @RetryableTopic 방식의 재시도 로직을 구현하여, 장애 상황에서 메시지 유실 없이 안정적으로 처리되도록 하였습니다.<br><br>
+4. @RetryableTopic 기반 재시도를 사용했으나, 단건 순차 처리의 E2E 지연 문제로 배치 리스너 + 코루틴 병렬 처리로 전환하여 E2E p95 기준 약 8배 개선을 달성했습니다.<br><br>
 
 ### 아키텍처 및 대기열 등록 과정
 
