@@ -32,16 +32,13 @@ class QueueController (
         val queueType = request.queueType
         val userId = request.userId
 
-        val requestKey = header.headers["request-key"]
-            ?.firstOrNull()
-            ?: throw ReserveException(HttpStatus.BAD_REQUEST, ErrorCode.NOT_EXIST_IN_HEADER_REQUEST_KEY)
-
+        // Nginx가 설정한 X-Request-Timestamp 사용, 없으면 현재 시각
         val requestTimestamp = header.headers.getFirst("X-Request-Timestamp")
                 ?.toDoubleOrNull()
                 ?: (System.currentTimeMillis() / 1000.0)
 
-        log.info { "대기열 등록 요청: server=$serverName, userId=$userId, queueType=$queueType, requestKey=$requestKey, timestamp=$requestTimestamp" }
-        return queueService.registerUserToWaitQueue(queueType, userId, requestKey, requestTimestamp)
+        log.info { "대기열 등록 요청: server=$serverName, userId=$userId, queueType=$queueType, timestamp=$requestTimestamp" }
+        return queueService.registerUserToWaitQueue(queueType, userId, requestTimestamp)
     }
 
     // 대기열에서의 사용자 순위 반환

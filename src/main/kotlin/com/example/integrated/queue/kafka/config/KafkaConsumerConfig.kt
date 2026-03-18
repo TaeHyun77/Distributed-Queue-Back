@@ -1,6 +1,5 @@
 package com.example.integrated.queue.kafka.config
 
-import com.example.integrated.util.Loggable
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.springframework.context.annotation.Bean
@@ -25,10 +24,12 @@ class KafkaConsumerConfig(
                 ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG to StringDeserializer::class.java,
 
-                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false, // 자동 commit 설정 false, 오프셋 커밋의 제어권을 Spring Kafka에 넘김
-                ConsumerConfig.MAX_POLL_RECORDS_CONFIG to 100, // 한 번에 100개의 record를 가져옴
-                ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG to 300000, // 5분 동안 poll()을 호출하지 않으면 리밸런싱 ( default : 5분 )
-                ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG to 30000
+                ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG to false,
+                ConsumerConfig.MAX_POLL_RECORDS_CONFIG to 200,          // 한 번에 200개의 record를 가져옴
+                ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG to 300000,   // 5분 동안 poll()을 호출하지 않으면 리밸런싱
+                ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG to 30000,
+                ConsumerConfig.FETCH_MIN_BYTES_CONFIG to 1,             // 최소 1바이트가 쌓이면 즉시 반환
+                ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG to 100          // 최대 100ms 대기 후 반환
         )
     }
 

@@ -1,16 +1,23 @@
 version: "2.4"
 
 services:
+
+  # --- 대기열 프로젝트 ---
   queueing-back-1:
     image: ayeah77/integrated-queueing
     container_name: queueing01
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9292/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     environment:
       - SERVER_NAME=queueing01
     ports:
       - "8081:8081"
     depends_on:
       kafka-1:
-        condition: service_healthy # service_healthy는 고정된 이름 값
+        condition: service_healthy
       kafka-2:
         condition: service_healthy
       kafka-3:
@@ -27,6 +34,11 @@ services:
   queueing-back-2:
     image: ayeah77/integrated-queueing
     container_name: queueing02
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9292/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     environment:
       - SERVER_NAME=queueing02
     ports:
@@ -50,6 +62,11 @@ services:
   queueing-back-3:
     image: ayeah77/integrated-queueing
     container_name: queueing03
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9292/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     environment:
       - SERVER_NAME=queueing03
     ports:
@@ -70,32 +87,109 @@ services:
     networks:
       - integrated-net
 
-  nginx:
-    image: nginx:latest
-    container_name: integrated-nginx
-
-    # 호스트에서 8079 포트로 접속하면, 컨테이너 내부의 90 포트로 연결
+  # --- 예약 프로젝트 ---
+  mysql:
+    image: mysql:8.0
+    container_name: reserve-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "0136"
+      MYSQL_DATABASE: reserve_project
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     ports:
-      - "8079:90"
-    # nginx.conf 파일을 nginx 컨테이너에 마운트
+      - "3306:3306"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - queueing-back-1
-      - queueing-back-2
-      - queueing-back-3
-#      - integrated-reserve-1
-#      - integrated-reserve-2
-#      - integrated-reserve-3
+      - mysql-data:/var/lib/mysql
     networks:
       - integrated-net
 
-  # Kafka Broker를 3대 실행시켜 Cluster 구조로 구성
+  reserve-1:
+    image: ayeah77/integrated-reserve
+    container_name: reserve01
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      - JAVA_OPTS=-Xms256m -Xmx512m
+      - SPRING_DATASOURCE_URL=jdbc:mysql://reserve-mysql:3306/reserve_project?useSSL=false&useUnicode=true&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=0136
+      - SPRING_DATA_REDIS_HOST=redis-master
+    ports:
+      - "8084:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis-sentinel01:
+        condition: service_healthy
+      redis-sentinel02:
+        condition: service_healthy
+      redis-sentinel03:
+        condition: service_healthy
+    networks:
+      - integrated-net
+
+  reserve-2:
+    image: ayeah77/integrated-reserve
+    container_name: reserve02
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      - JAVA_OPTS=-Xms256m -Xmx512m
+      - SPRING_DATASOURCE_URL=jdbc:mysql://reserve-mysql:3306/reserve_project?useSSL=false&useUnicode=true&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=0136
+      - SPRING_DATA_REDIS_HOST=redis-master
+    ports:
+      - "8085:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis-sentinel01:
+        condition: service_healthy
+      redis-sentinel02:
+        condition: service_healthy
+      redis-sentinel03:
+        condition: service_healthy
+    networks:
+      - integrated-net
+
+  # --- Nginx ---
+  nginx:
+    image: nginx:latest
+    container_name: integrated-nginx
+    ports:
+      - "8079:90"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      queueing-back-1:
+        condition: service_healthy
+      queueing-back-2:
+        condition: service_healthy
+      queueing-back-3:
+        condition: service_healthy
+      reserve-1:
+        condition: service_healthy
+      reserve-2:
+        condition: service_healthy
+    networks:
+      - integrated-net
+
+  # --- Kafka 3-Broker KRaft Cluster ---
   kafka-1:
     image: confluentinc/cp-kafka:latest
     container_name: kafka-1
-    healthcheck: # 5초마다 health check를 수행하여 Kafka 브로커가 정상적으로 기동되어 요청을 처리할 수 있는 상태인지 확인
-      test: [ "CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1" ]
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1"]
       interval: 5s
       timeout: 10s
       retries: 15
@@ -110,13 +204,12 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
-
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_DEFAULT_REPLICATION_FACTOR: 3
-
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
-      CLUSTER_ID: 'ciWo7IWazngRchmPES6q5A==' # 동일한 Cluster로 설정
+      CLUSTER_ID: 'ciWo7IWazngRchmPES6q5A=='
     ports:
       - "9092:9092"
     networks:
@@ -126,7 +219,7 @@ services:
     image: confluentinc/cp-kafka:latest
     container_name: kafka-2
     healthcheck:
-      test: [ "CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1" ]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1"]
       interval: 5s
       timeout: 10s
       retries: 15
@@ -141,11 +234,10 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
-
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_DEFAULT_REPLICATION_FACTOR: 3
-
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       CLUSTER_ID: 'ciWo7IWazngRchmPES6q5A=='
     ports:
@@ -157,7 +249,7 @@ services:
     image: confluentinc/cp-kafka:latest
     container_name: kafka-3
     healthcheck:
-      test: [ "CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1" ]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1"]
       interval: 5s
       timeout: 10s
       retries: 15
@@ -172,11 +264,10 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
-
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_DEFAULT_REPLICATION_FACTOR: 3
-
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       CLUSTER_ID: 'ciWo7IWazngRchmPES6q5A=='
     ports:
@@ -192,18 +283,19 @@ services:
     networks:
       - integrated-net
 
+  # --- Redis Master-Slave + Sentinel ---
   redis-master:
     image: "bitnami/redis:latest"
     hostname: redis-master
     container_name: queue-redis-master
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
     environment:
       - REDIS_REPLICATION_MODE=master
-      - ALLOW_EMPTY_PASSWORD=yes # 비밀번호 없이
+      - ALLOW_EMPTY_PASSWORD=yes
     ports:
       - "6379:6379"
     networks:
@@ -214,7 +306,7 @@ services:
     hostname: redis-slave01
     container_name: queue-redis-slave01
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -234,7 +326,7 @@ services:
     hostname: redis-slave02
     container_name: queue-redis-slave02
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -254,26 +346,25 @@ services:
     hostname: redis-sentinel01
     container_name: queue-redis-sentinel01
     healthcheck:
-      test: [ "CMD", "redis-cli", "-p", "26379", "ping" ]
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
     environment:
-      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000 # redis 노드에서 설정값 동안 응답이 없으면 down으로 판단
-      - REDIS_SENTINEL_FAILOVER_TIMEOUT=10000 # failover 타임아웃, 설정값동안 failover가 완료되지 않는다면 다른 Sentinel이 재시도 (10초, 기본은 180초)
-      - REDIS_SENTINEL_PARALLEL_SYNCS=1 # Failover 이후, Slave들이 새 Master와 동기화할 때 동시에 몇 개까지 sync 할지
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT=10000
+      - REDIS_SENTINEL_PARALLEL_SYNCS=1
       - REDIS_MASTER_HOST=redis-master
       - REDIS_MASTER_PORT_NUMBER=6379
       - REDIS_MASTER_SET=toMaster
-      - REDIS_SENTINEL_QUORUM=2 # 장애 판단을 확정하기 위해 2개 ( 과반수 )의 sentinel 동의가 필요
+      - REDIS_SENTINEL_QUORUM=2
     depends_on:
       redis-master:
         condition: service_healthy
       redis-slave01:
-          condition: service_healthy
+        condition: service_healthy
       redis-slave02:
-          condition: service_healthy
-
+        condition: service_healthy
     ports:
       - '26379:26379'
     networks:
@@ -284,7 +375,7 @@ services:
     hostname: redis-sentinel02
     container_name: queue-redis-sentinel02
     healthcheck:
-      test: [ "CMD", "redis-cli", "-p", "26379", "ping" ]
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -313,7 +404,7 @@ services:
     hostname: redis-sentinel03
     container_name: queue-redis-sentinel03
     healthcheck:
-      test: [ "CMD", "redis-cli", "-p", "26379", "ping" ]
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -337,7 +428,7 @@ services:
     networks:
       - integrated-net
 
-  # Kafka Consumer Lag 수집 exporter
+  # --- 모니터링 ---
   kafka-exporter:
     image: danielqsj/kafka-exporter:latest
     container_name: kafka-exporter
@@ -357,7 +448,6 @@ services:
     networks:
       - integrated-net
 
-  # Prometheus : 메트릭 수집 및 저장
   airdnb-prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -373,7 +463,6 @@ services:
     networks:
       - integrated-net
 
-  # Grafana : 메트릭 시각화 대시보드
   airdnb-local-grafana:
     image: grafana/grafana:latest
     container_name: grafana
@@ -394,3 +483,4 @@ networks:
 
 volumes:
   grafana-data:
+  mysql-data:

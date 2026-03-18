@@ -1,0 +1,37 @@
+-- 스케줄러 전용 Lua 스크립트: 만료 정리 + 빈 자리 계산 + 승격을 원자적으로 수행
+--
+-- KEYS[1] : 참가열 키 (ZSet)
+-- KEYS[2] : 대기열 키 (ZSet)
+--
+-- ARGV[1] : 참가열 최대 수용 인원 (maxCapacity)
+-- ARGV[2] : 현재 시각 밀리초 (만료 판단용)
+-- ARGV[3] : 참가열 score (expireAt)
+--
+-- 반환 값: 승격된 사용자 수
+
+local allowKey = KEYS[1]
+local waitKey = KEYS[2]
+
+local maxCapacity = tonumber(ARGV[1])
+local nowMs = tonumber(ARGV[2])
+local expireAt = tonumber(ARGV[3])
+
+-- 1. 참가열에서 만료된 사용자 정리
+redis.call('ZREMRANGEBYSCORE', allowKey, '-inf', nowMs)
+
+-- 2. 빈 자리 계산
+local currentCount = redis.call('ZCARD', allowKey)
+local vacancy = maxCapacity - currentCount
+if vacancy <= 0 then return 0 end
+
+-- 3. 대기열에서 빈 자리만큼 꺼내서 참가열에 삽입
+local waitUsers = redis.call('ZPOPMIN', waitKey, vacancy)
+if #waitUsers == 0 then return 0 end
+
+local promoted = 0
+for i = 1, #waitUsers, 2 do
+    redis.call('ZADD', allowKey, expireAt, waitUsers[i])
+    promoted = promoted + 1
+end
+
+return promoted

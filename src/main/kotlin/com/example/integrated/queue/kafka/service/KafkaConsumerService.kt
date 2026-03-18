@@ -12,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.runBlocking
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.beans.factory.annotation.Value
@@ -28,11 +29,11 @@ class KafkaConsumerService(
         private val redisPublisher: RedisPublisher,
         private val kafkaTemplate: KafkaTemplate<String, String>,
         @Value("\${queue.event.topic.name}") private val topicName: String
-): Loggable {
+) : Loggable {
 
     companion object {
-        private const val MAX_RETRIES = 5 // 재시도 횟수
-        private val BACKOFF_DELAYS = longArrayOf(1000, 2000, 4000, 8000, 12000) // 재시도 간 간격
+        private const val MAX_RETRIES = 3
+        private val BACKOFF_DELAYS = longArrayOf(500, 1000, 2000) // 최대 3.5초
     }
 
     @KafkaListener(
@@ -51,7 +52,7 @@ class KafkaConsumerService(
                 }.awaitAll()
             }
         }
-        acknowledgment.acknowledge() // 이를 통해 offset 커밋
+        acknowledgment.acknowledge()
     }
 
     private suspend fun processWithRetry(record: ConsumerRecord<String, String>) {
@@ -75,9 +76,9 @@ class KafkaConsumerService(
         sendToDlt(record)
     }
 
-    private fun sendToDlt(record: ConsumerRecord<String, String>) {
+    private suspend fun sendToDlt(record: ConsumerRecord<String, String>) {
         try {
-            kafkaTemplate.send("$topicName-dlt", record.key(), record.value())
+            kafkaTemplate.send("$topicName-dlt", record.key(), record.value()).await()
             log.info { "DLT 전송 완료: topic=$topicName-dlt, key=${record.key()}" }
         } catch (e: Exception) {
             log.error(e) { "DLT 전송 실패: key=${record.key()}" }
@@ -87,24 +88,30 @@ class KafkaConsumerService(
     private suspend fun handleMessage(message: String) {
         val consumeMessage = objectMapper.readValueFromJson<KafkaMessageDto>(message)
 
-        // 하이브리드 승격 : 참가열 여유 시 직접 삽입, 아니면 대기열 삽입
+        // 단일 Lua 스크립트로 중복 체크 + score 생성 + 대기열/참가열 삽입을 원자적으로 처리
         val result = queueSchedulerService.enqueueOrAllow(
                 consumeMessage.queueType,
                 consumeMessage.userId,
-                consumeMessage.timeStamp
+                consumeMessage.timestamp
         )
 
-        if (consumeMessage.requestedAt > 0) {
-            val e2eDuration = System.currentTimeMillis() - consumeMessage.requestedAt
+        // E2E latency 측정
+        if (consumeMessage.timestamp > 0) {
+            val requestedAtMs = (consumeMessage.timestamp * 1000).toLong()
+            val e2eDuration = System.currentTimeMillis() - requestedAtMs
             log.info { "E2E completed duration=${e2eDuration}ms userId=${consumeMessage.userId}" }
         }
 
-        if (result == 1L) {
-            // 참가열 직접 삽입 → 클라이언트에 즉시 입장 알림
-            log.info { "참가열 직접 삽입: userId=${consumeMessage.userId}, queueType=${consumeMessage.queueType}" }
-        } else {
-            // 대기열 삽입 → 스케줄러가 이후에 승격
-            queueScheduler.addActiveQueue(consumeMessage.queueType)
+        when (result) {
+            -1L, -2L -> {
+                log.info { "이미 등록된 유저 (중복 무시): userId=${consumeMessage.userId}" }
+            }
+            1L -> {
+                log.info { "참가열 직접 삽입: userId=${consumeMessage.userId}, queueType=${consumeMessage.queueType}" }
+            }
+            else -> {
+                queueScheduler.addActiveQueue(consumeMessage.queueType)
+            }
         }
 
         redisPublisher.publish(CHANNEL_NAME, consumeMessage.queueType)

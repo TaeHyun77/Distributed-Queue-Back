@@ -31,8 +31,9 @@ class KafkaProducerConfig(
             ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG to true,
 
             ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION to 5, // 순서 보장
-            ProducerConfig.LINGER_MS_CONFIG to 5,
-            ProducerConfig.BATCH_SIZE_CONFIG to 32768,
+            ProducerConfig.LINGER_MS_CONFIG to 20,
+            ProducerConfig.BATCH_SIZE_CONFIG to 65536,
+            ProducerConfig.COMPRESSION_TYPE_CONFIG to "lz4",
             ProducerConfig.RETRIES_CONFIG to Int.MAX_VALUE, // 무제한 재시도
             ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG to 120000, // 재시도 포함 전송 타임아웃 (기본 2분)
             ProducerConfig.RETRY_BACKOFF_MS_CONFIG to 100L // 재시도 간격
