@@ -43,9 +43,6 @@ dependencies {
 	// log 의존성
 	implementation("io.github.oshai:kotlin-logging-jvm:5.1.4")
 
-	// kafka 의존성
-	implementation ("org.springframework.kafka:spring-kafka")
-
 	// 코루틴
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.3")
 	implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:1.6.3")

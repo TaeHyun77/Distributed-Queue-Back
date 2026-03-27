@@ -1,7 +1,8 @@
 package com.example.integrated.queue.queue.dto
 
 enum class RegisterResult {
-    SUCCESS,
-    ALREADY_REGISTERED,
-    DUPLICATE_REQUEST
+    QUEUED,
+    DIRECT_ALLOW,
+    ALREADY_IN_WAIT,
+    ALREADY_IN_ALLOW,
 }

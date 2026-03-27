@@ -1,100 +1,75 @@
-# CLAUDE.md
+# Integrated Queueing System
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Kotlin + Spring Boot WebFlux 기반 분산 대기열/참가열 관리 시스템. Redis Sorted Set으로 큐를 관리하고, SSE로 실시간 순위를 전달한다.
 
 ## 응답 언어 지침
 
 - 모든 결과값, 설명, 주석, 커밋 메시지, PR 설명 등은 반드시 한글로 작성한다.
 - 코드 내 변수명, 함수명, 클래스명 등 식별자는 영문을 유지하되, 그 외 사람이 읽는 텍스트는 한글로 작성한다.
 
-## Project Overview
+## 프로젝트 개요
 
-Integrated Queueing System — a distributed queue management backend built with Kotlin, Spring Boot WebFlux, and Kotlinx Coroutines. The system manages wait/allow queues using Redis Sorted Sets, processes events through Kafka, and delivers real-time updates via SSE.
+Docker Compose로 11개 서비스(앱 3개, Redis master/slave/sentinel, Nginx, Prometheus/Grafana)가 기동되는 분산 환경이다. 별도의 Reserve(예약) 프로젝트와 Docker Compose로 통합되어 티켓팅 시스템을 구성한다. 대기열 시스템이 트래픽을 제어하고, 참가열로 승격된 사용자가 예약 서비스로 이동한다.
 
-## Build & Run Commands
+## 빌드 및 실행
 
 ```bash
-# Build
+# 빌드
 ./gradlew build
 
-# Run tests
+# 테스트 실행
 ./gradlew test
 
-# Run a single test class
+# 단일 테스트 클래스 실행
 ./gradlew test --tests "com.example.integrated.ExceptionTest"
 
-# Build Docker image and start full infrastructure
+# Docker 이미지 빌드 및 인프라 기동
 docker build -t ayeah77/integrated-queueing .
 docker-compose up
 ```
 
-## Tech Stack
+## 기술 스택
 
-- **Language:** Kotlin 1.9.25, Java 17
-- **Framework:** Spring Boot 3.5.4 with WebFlux (reactive, non-blocking)
-- **Async:** Kotlinx Coroutines + Project Reactor
-- **Database:** MySQL via R2DBC (async)
-- **Cache/Queue Store:** Redis with Sentinel (master-slave replication, Redisson for distributed locks)
-- **Messaging:** Apache Kafka (3-node KRaft cluster, 3 partitions, replication factor 3)
-- **Real-time:** Server-Sent Events (SSE) with Redis Pub/Sub
-- **Load Balancer:** Nginx (round-robin across 3 app instances)
+- 프레임워크: Kotlin + Spring Boot WebFlux (비동기/논블로킹)
+- 비동기: Kotlinx Coroutines + Project Reactor
+- 큐 저장소: Redis Sentinel (master-slave, Redisson 분산 락)
+- 실시간: SSE + Redis Pub/Sub
+- 로드밸런서: Nginx (라운드로빈, 앱 3개 인스턴스)
+- 모니터링: Prometheus + Grafana
 
-## Architecture
+## 아키텍처 핵심
 
-### Request Flow
+트래픽 흐름: 사용자 요청 → Nginx → Lua 스크립트로 원자적 대기열/참가열 삽입 → Redis Pub/Sub → SSE 알림
 
-1. Client sends registration request with idempotency key (`request-key` header) → `QueueController`
-2. `QueueService` validates, checks duplicates via `DuplicationCheckService` (R2DBC unique constraint)
-3. `KafkaProducerService` publishes registration event to `queueing-system` topic
-4. `KafkaConsumerService` consumes event, adds user to Redis wait queue (Sorted Set)
-5. `QueueToAllowScheduler` (every 3s) promotes users from wait → allow queue using Redisson distributed lock
-6. Redis Pub/Sub notifies all instances → SSE streams push rank/confirmation updates to clients
+Redis 키 구조:
+- 대기열: `{queueType}:user-queue:wait` — Sorted Set, score = epoch-ms 20비트 시프트 + sequence
+- 참가열: `{queueType}:user-queue:allow` — Sorted Set, score = 만료 타임스탬프
+- 활성 큐 플래그: `active-allow-queue` — 스케줄링 활성 큐 타입 추적
+- Pub/Sub 채널: `queueing_system`
 
-### Key Data Structures (Redis)
+분산 안전성:
+- Redisson 분산 락(`scheduling_key`, 4초 lease)으로 스케줄러 단일 실행 보장
+- Lua 스크립트(`enqueue-or-allow.lua`, `schedule-promote.lua`)로 Redis 연산 원자성 보장
 
-- **Wait Queue:** `{queueType}:user-queue:wait` — Sorted Set, score = epoch-ms shifted 20 bits + sequence
-- **Allow Queue:** `{queueType}:user-queue:allow` — Sorted Set, score = expiration timestamp
-- **Active Queue Flag:** `active-allow-queue` — tracks which queue types have active scheduling
-- **Pub/Sub Channel:** `queueing_system`
+## Gotchas
 
-### Module Layout
+- CancellationException 재발생 필수 — 코루틴 `catch (e: Exception)` 블록에서 `CancellationException`은 반드시 `throw e`로 재발생시킨다. 삼키면 코루틴 취소가 전파되지 않아 리소스 누수 발생. `KafkaProducerService`, `RedisLockUtil` 참고.
+- Lua 스크립트 반환 값 연결 — `scripts/enqueue-or-allow.lua`의 반환 값(-1, -2, 0, 1)이 `KafkaConsumerService.handleMessage()`의 `when` 분기와 직접 연결된다. 양쪽을 반드시 함께 수정한다.
+- SSE 승격 중간 상태 — Lua 스크립트 승격과 SSE 이벤트 생성 사이에 타이밍 갭이 존재한다. `SseEventService.buildSseEvent()`의 이중 확인 패턴(대기열에 없으면 참가열 재확인)을 유지한다.
+- Redisson 분산 락 leaseTime 4초 — 활성 큐 타입이 증가하면 4초 내에 모든 승격 처리가 완료되는지 확인해야 한다.
+- 설정 값은 `application.properties` 직접 확인 — CLAUDE.md에 설정 값을 중복 기재하지 않는다. 불일치 방지를 위함.
 
-All source under `src/main/kotlin/com/example/integrated/`:
+## 코딩 컨벤션
 
-- `queue/queue/` — Core queue logic: controller, service, scheduler, DTOs
-- `queue/kafka/` — Kafka producer/consumer and their configs
-- `queue/duplication/` — Idempotency checking via R2DBC entity with unique constraint + 5-min TTL
-- `queue/sse/` — SSE controller, service, and sealed event types (`UpdateSseEvent`, `ConfirmSseEvent`, `ErrorSseEvent`)
-- `redis/` — Redis config (Sentinel), Redisson distributed lock utility, Pub/Sub publisher/listener
-- `security/` — Spring Security WebFlux config with CORS (origin: `localhost:3000`)
-- `reserveException/` — Custom `ReserveException`, `ErrorCode` enum, global exception handler
-- `util/` — Constants (`WAIT_QUEUE`, `ALLOW_QUEUE`, `CHANNEL_NAME`), logging helpers
+- Loggable 인터페이스 — 모든 `@Service`/`@Component`/`@Controller`에 `: Loggable`을 구현한다. `log` 프로퍼티로 KotlinLogging 사용.
+- Reactor→코루틴 브릿지 — 값 보장 시 `awaitSingle()`, null 가능 시 `awaitSingleOrNull()`, 빈 Flux 시 `awaitFirstOrNull()`.
+- 병렬화 패턴 — 독립적인 suspend 호출은 `coroutineScope { list.map { async { ... } }.awaitAll() }` 패턴 사용.
+- SSE 이벤트 추가 — `SseEvent` sealed class를 상속하고, `event` 프로퍼티에 SSE 이벤트명을 지정한다.
+- 예외 처리 — `ReserveException(HttpStatus, ErrorCode)`로 발생시킨다. 새 에러 유형은 `ErrorCode` enum에 추가.
 
-### Distributed Safety
+## Compact Instructions
 
-- **Redisson lock** (`scheduling_key`, 4s lease) ensures only one instance runs the queue promotion scheduler at a time
-- **Kafka idempotent producer** with `acks=all` and single in-flight request for ordering guarantees
-- **`@RetryableTopic`** on consumer: 3 retries with 1s backoff, Dead Letter Topic fallback
-
-### REST API Endpoints (all under `/queue`)
-
-- `POST /register` — Register user to wait queue (requires `request-key` header)
-- `GET /get/rank` — Get user's current queue rank
-- `GET /create/cookie` — Issue HmacSHA256 access token as HTTP-only cookie (10-min TTL)
-- `POST /isValidateToken/{token}` — Validate access token
-- `POST /cancel` — Cancel user from queue
-- `GET /stream` — SSE stream for real-time rank/confirmation updates
-
-## Infrastructure (docker-compose)
-
-- 3 app instances (ports 8081-8083) behind Nginx (port 8079)
-- 3-node Kafka cluster (KRaft mode, ports 9092-9094)
-- Redis master + 2 slaves + 3 Sentinels
-- MySQL on host at port 3306
-
-## Key Configuration (application.properties)
-
-- `queue.allow.max-capacity=1000` — max users in allow queue
-- `queue.allow.interval-ms=3000` — scheduler promotion interval
-- `queue.validation.key=park` — queue validation key
-- `queue.event.topic.name=queueing-system` — Kafka topic name
+컨텍스트 압축 시 다음을 반드시 보존한다:
+- Gotchas 섹션 전체 (CancellationException, Lua 반환 값 규약)
+- 코딩 컨벤션의 Loggable 인터페이스 규칙과 Reactor-코루틴 브릿지 패턴
+- 응답 언어 지침 (한글)

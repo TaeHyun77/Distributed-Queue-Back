@@ -64,8 +64,7 @@ class QueueSchedulerService(
     }
 
     /**
-     * Consumer용: 중복 체크 + score 생성 + 대기열/참가열 삽입을 원자적으로 처리
-     *
+     * 중복 체크 + score 생성 + 대기열/참가열 삽입을 원자적으로 처리
      * return -1 (대기열 존재), -2 (참가열 존재), 1 (참가열 삽입), 0 (대기열 삽입)
      */
     suspend fun enqueueOrAllow(
