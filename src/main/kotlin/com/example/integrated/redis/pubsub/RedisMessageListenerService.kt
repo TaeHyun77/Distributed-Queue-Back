@@ -5,16 +5,12 @@ import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.reactive.asFlow
 import org.springframework.data.redis.listener.ChannelTopic
@@ -49,24 +45,25 @@ class RedisMessageListenerService(
     // Redis Pub/Sub 채널을 구독하여 수신된 메시지를 MutableSharedFlow에 전달
     private suspend fun receiveMessages(channel: ChannelTopic) {
         val channelSerializer = createChannelAndValueSerializer()
+        var attempt = 0L
 
-        redisMessageListenerContainer
-            .receive(listOf(channel), channelSerializer, channelSerializer)
-            .asFlow()
-            .map { it.message }
-            .onEach { queueType ->
-                SseEventService.getSink(queueType).tryEmit(queueType)
-            }
-            .retryWhen { cause, attempt ->
-                val delayMs = 2000L * minOf(attempt + 1, 5)
-                log.warn { "Redis Pub/Sub 연결 끊김 (시도: ${attempt + 1}), ${delayMs}ms 후 재구독: ${cause.message}" }
+        while (true) {
+            try {
+                redisMessageListenerContainer
+                    .receive(listOf(channel), channelSerializer, channelSerializer)
+                    .asFlow()
+                    .collect { message ->
+                        SseEventService.getSink(message.message).tryEmit(message.message)
+                    }
+                break
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val delayMs = 2000L * minOf(++attempt, 5)
+                log.warn { "Redis Pub/Sub 연결 끊김 (시도: $attempt), ${delayMs}ms 후 재구독: ${e.message}" }
                 delay(delayMs)
-                true
             }
-            .catch { e ->
-                log.error { "Redis Pub/Sub 복구 불가 에러: ${e.message}" }
-            }
-            .collect()
+        }
     }
 
     private fun createChannelAndValueSerializer(): RedisSerializationContext.SerializationPair<String> {

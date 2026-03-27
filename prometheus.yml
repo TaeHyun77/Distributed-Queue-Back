@@ -21,8 +21,3 @@ scrape_configs:
           - 'queueing01:9292'
           - 'queueing02:9292'
           - 'queueing03:9292'
-
-  - job_name: "kafka-exporter"
-    scrape_interval: 5s          # 15s → 5s
-    static_configs:
-      - targets: ['kafka-exporter:9308']

@@ -1,0 +1,769 @@
+=======================================================
+  Kafka 제거 후 대기열 벤치마크
+  RPS: 100 ~ 1000 (100 단위)
+  각 RPS마다 compose up/down
+  테스트: 10초, 웜업: 100 RPS × 10초
+=======================================================
+
+══ RPS=100 (1000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve02 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (100 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 500 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 100.00 iterations/s for 10s (maxVUs: 200-500, gracefulStop: 30s)
+
+
+running (01.0s), 200/200 VUs, 97 complete and 0 interrupted iterations
+load_test   [  10% ] 002/200 VUs  01.0s/10s  100 iters/s
+
+running (02.0s), 200/200 VUs, 198 complete and 0 interrupted iterations
+load_test   [  20% ] 001/200 VUs  02.0s/10s  100 iters/s
+
+running (03.0s), 200/200 VUs, 297 complete and 0 interrupted iterations
+load_test   [  30% ] 000/200 VUs  03.0s/10s  100 iters/s
+
+running (04.0s), 200/200 VUs, 398 complete and 0 interrupted iterations
+load_test   [  40% ] 000/200 VUs  04.0s/10s  100 iters/s
+
+running (05.0s), 200/200 VUs, 497 complete and 0 interrupted iterations
+load_test   [  50% ] 002/200 VUs  05.0s/10s  100 iters/s
+
+running (06.0s), 200/200 VUs, 597 complete and 0 interrupted iterations
+load_test   [  60% ] 001/200 VUs  06.0s/10s  100 iters/s
+
+running (07.0s), 200/200 VUs, 697 complete and 0 interrupted iterations
+load_test   [  70% ] 001/200 VUs  07.0s/10s  100 iters/s
+
+running (08.0s), 200/200 VUs, 797 complete and 0 interrupted iterations
+load_test   [  80% ] 002/200 VUs  08.0s/10s  100 iters/s
+
+running (09.0s), 200/200 VUs, 898 complete and 0 interrupted iterations
+load_test   [  90% ] 002/200 VUs  09.0s/10s  100 iters/s
+
+running (10.0s), 200/200 VUs, 998 complete and 0 interrupted iterations
+load_test   [ 100% ] 000/200 VUs  10.0s/10s  100 iters/s
+
+running (10.0s), 000/200 VUs, 1001 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 000/200 VUs  10s  100 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 1000건 / 10초 (100 RPS)
+-------------------------------------------------------
+  성공: 1001건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=3.11ms  avg=5.44ms  max=12.48ms
+  p(95)=6.83ms  p(99)=9.02ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=1001  실패=0  중복=0  Redis=1001
+  HTTP avg=5.44ms  p95=6.83ms  max=12.48ms
+  소비=11초  처리량=91.0/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+══ RPS=200 (2000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve02 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (200 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 1000 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 200.00 iterations/s for 10s (maxVUs: 400-1000, gracefulStop: 30s)
+
+
+running (00.9s), 0400/0400 VUs, 188 complete and 0 interrupted iterations
+load_test   [   9% ] 0002/0400 VUs  00.9s/10s  200 iters/s
+
+running (02.0s), 0400/0400 VUs, 387 complete and 0 interrupted iterations
+load_test   [  20% ] 0004/0400 VUs  02.0s/10s  200 iters/s
+
+running (03.0s), 0400/0400 VUs, 589 complete and 0 interrupted iterations
+load_test   [  30% ] 0002/0400 VUs  03.0s/10s  200 iters/s
+
+running (03.9s), 0400/0400 VUs, 787 complete and 0 interrupted iterations
+load_test   [  39% ] 0003/0400 VUs  03.9s/10s  200 iters/s
+
+running (05.0s), 0400/0400 VUs, 988 complete and 0 interrupted iterations
+load_test   [  50% ] 0003/0400 VUs  05.0s/10s  200 iters/s
+
+running (06.0s), 0400/0400 VUs, 1189 complete and 0 interrupted iterations
+load_test   [  59% ] 0001/0400 VUs  05.9s/10s  200 iters/s
+
+running (07.0s), 0400/0400 VUs, 1388 complete and 0 interrupted iterations
+load_test   [  69% ] 0002/0400 VUs  06.9s/10s  200 iters/s
+
+running (08.0s), 0400/0400 VUs, 1589 complete and 0 interrupted iterations
+load_test   [  80% ] 0002/0400 VUs  08.0s/10s  200 iters/s
+
+running (08.9s), 0400/0400 VUs, 1788 complete and 0 interrupted iterations
+load_test   [  89% ] 0002/0400 VUs  08.9s/10s  200 iters/s
+
+running (09.9s), 0400/0400 VUs, 1988 complete and 0 interrupted iterations
+load_test   [  99% ] 0002/0400 VUs  09.9s/10s  200 iters/s
+
+running (10.0s), 0000/0400 VUs, 2001 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 0000/0400 VUs  10s  200 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 2000건 / 10초 (200 RPS)
+-------------------------------------------------------
+  성공: 2001건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=2.60ms  avg=5.51ms  max=56.80ms
+  p(95)=7.99ms  p(99)=14.55ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=2001  실패=0  중복=0  Redis=2001
+  HTTP avg=5.51ms  p95=7.99ms  max=56.80ms
+  소비=11초  처리량=181.9/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+══ RPS=300 (3000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve02 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (300 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 1500 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 300.00 iterations/s for 10s (maxVUs: 600-1500, gracefulStop: 30s)
+
+
+running (00.9s), 0600/0600 VUs, 279 complete and 0 interrupted iterations
+load_test   [   9% ] 0003/0600 VUs  00.9s/10s  300 iters/s
+
+running (01.9s), 0600/0600 VUs, 573 complete and 0 interrupted iterations
+load_test   [  19% ] 0009/0600 VUs  01.9s/10s  300 iters/s
+
+running (02.9s), 0600/0600 VUs, 880 complete and 0 interrupted iterations
+load_test   [  29% ] 0003/0600 VUs  02.9s/10s  300 iters/s
+
+running (03.9s), 0600/0600 VUs, 1167 complete and 0 interrupted iterations
+load_test   [  39% ] 0015/0600 VUs  03.9s/10s  300 iters/s
+
+running (04.9s), 0600/0600 VUs, 1480 complete and 0 interrupted iterations
+load_test   [  49% ] 0001/0600 VUs  04.9s/10s  300 iters/s
+
+running (05.9s), 0600/0600 VUs, 1778 complete and 0 interrupted iterations
+load_test   [  59% ] 0004/0600 VUs  05.9s/10s  300 iters/s
+
+running (06.9s), 0600/0600 VUs, 2079 complete and 0 interrupted iterations
+load_test   [  69% ] 0002/0600 VUs  06.9s/10s  300 iters/s
+
+running (07.9s), 0600/0600 VUs, 2380 complete and 0 interrupted iterations
+load_test   [  79% ] 0001/0600 VUs  07.9s/10s  300 iters/s
+
+running (08.9s), 0600/0600 VUs, 2680 complete and 0 interrupted iterations
+load_test   [  89% ] 0002/0600 VUs  08.9s/10s  300 iters/s
+
+running (09.9s), 0600/0600 VUs, 2980 complete and 0 interrupted iterations
+load_test   [  99% ] 0001/0600 VUs  09.9s/10s  300 iters/s
+
+running (10.0s), 0000/0600 VUs, 3001 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 0000/0600 VUs  10s  300 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 3000건 / 10초 (300 RPS)
+-------------------------------------------------------
+  성공: 3001건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=2.05ms  avg=6.16ms  max=53.35ms
+  p(95)=12.28ms  p(99)=24.07ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=3001  실패=0  중복=0  Redis=3001
+  HTTP avg=6.16ms  p95=12.28ms  max=53.35ms
+  소비=11초  처리량=272.8/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+══ RPS=400 (4000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve02 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (400 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 2000 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 400.00 iterations/s for 10s (maxVUs: 800-2000, gracefulStop: 30s)
+
+
+running (00.9s), 0800/0800 VUs, 357 complete and 0 interrupted iterations
+load_test   [   9% ] 0004/0800 VUs  00.9s/10s  400 iters/s
+
+running (01.9s), 0800/0800 VUs, 759 complete and 0 interrupted iterations
+load_test   [  19% ] 0006/0800 VUs  01.9s/10s  400 iters/s
+
+running (02.9s), 0800/0800 VUs, 1157 complete and 0 interrupted iterations
+load_test   [  29% ] 0006/0800 VUs  02.9s/10s  400 iters/s
+
+running (03.9s), 0800/0800 VUs, 1557 complete and 0 interrupted iterations
+load_test   [  39% ] 0007/0800 VUs  03.9s/10s  400 iters/s
+
+running (04.9s), 0800/0800 VUs, 1959 complete and 0 interrupted iterations
+load_test   [  49% ] 0004/0800 VUs  04.9s/10s  400 iters/s
+
+running (05.9s), 0800/0800 VUs, 2360 complete and 0 interrupted iterations
+load_test   [  59% ] 0002/0800 VUs  05.9s/10s  400 iters/s
+
+running (06.9s), 0800/0800 VUs, 2759 complete and 0 interrupted iterations
+load_test   [  69% ] 0002/0800 VUs  06.9s/10s  400 iters/s
+
+running (07.9s), 0800/0800 VUs, 3160 complete and 0 interrupted iterations
+load_test   [  79% ] 0002/0800 VUs  07.9s/10s  400 iters/s
+
+running (08.9s), 0800/0800 VUs, 3561 complete and 0 interrupted iterations
+load_test   [  89% ] 0002/0800 VUs  08.9s/10s  400 iters/s
+
+running (09.9s), 0800/0800 VUs, 3961 complete and 0 interrupted iterations
+load_test   [  99% ] 0003/0800 VUs  09.9s/10s  400 iters/s
+
+running (10.0s), 0000/0800 VUs, 4001 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 0000/0800 VUs  10s  400 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 4000건 / 10초 (400 RPS)
+-------------------------------------------------------
+  성공: 4001건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=2.02ms  avg=7.98ms  max=86.41ms
+  p(95)=18.80ms  p(99)=46.35ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=4001  실패=0  중복=0  Redis=4001
+  HTTP avg=7.98ms  p95=18.80ms  max=86.41ms
+  소비=11초  처리량=363.7/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+══ RPS=500 (5000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve02 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (500 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 2500 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 500.00 iterations/s for 10s (maxVUs: 1000-2500, gracefulStop: 30s)
+
+
+running (00.9s), 1000/1000 VUs, 426 complete and 0 interrupted iterations
+load_test   [   9% ] 0013/1000 VUs  00.9s/10s  500 iters/s
+
+running (01.9s), 1000/1000 VUs, 921 complete and 0 interrupted iterations
+load_test   [  19% ] 0021/1000 VUs  01.9s/10s  500 iters/s
+
+running (02.9s), 1000/1000 VUs, 1431 complete and 0 interrupted iterations
+load_test   [  29% ] 0011/1000 VUs  02.9s/10s  500 iters/s
+
+running (03.9s), 1000/1000 VUs, 1937 complete and 0 interrupted iterations
+load_test   [  39% ] 0004/1000 VUs  03.9s/10s  500 iters/s
+
+running (04.9s), 1000/1000 VUs, 2436 complete and 0 interrupted iterations
+load_test   [  49% ] 0005/1000 VUs  04.9s/10s  500 iters/s
+
+running (05.9s), 1000/1000 VUs, 2938 complete and 0 interrupted iterations
+load_test   [  59% ] 0004/1000 VUs  05.9s/10s  500 iters/s
+
+running (06.9s), 1000/1000 VUs, 3437 complete and 0 interrupted iterations
+load_test   [  69% ] 0005/1000 VUs  06.9s/10s  500 iters/s
+
+running (07.9s), 1000/1000 VUs, 3935 complete and 0 interrupted iterations
+load_test   [  79% ] 0007/1000 VUs  07.9s/10s  500 iters/s
+
+running (08.9s), 1000/1000 VUs, 4435 complete and 0 interrupted iterations
+load_test   [  89% ] 0006/1000 VUs  08.9s/10s  500 iters/s
+
+running (09.9s), 1000/1000 VUs, 4939 complete and 0 interrupted iterations
+load_test   [  99% ] 0004/1000 VUs  09.9s/10s  500 iters/s
+
+running (10.0s), 0000/1000 VUs, 5002 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 0000/1000 VUs  10s  500 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 5000건 / 10초 (500 RPS)
+-------------------------------------------------------
+  성공: 5002건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=1.99ms  avg=16.56ms  max=188.84ms
+  p(95)=53.92ms  p(99)=113.04ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=5002  실패=0  중복=0  Redis=5002
+  HTTP avg=16.56ms  p95=53.92ms  max=188.84ms
+  소비=11초  처리량=454.7/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+══ RPS=600 (6000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve02 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (600 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 3000 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 600.00 iterations/s for 10s (maxVUs: 1200-3000, gracefulStop: 30s)
+
+
+running (00.9s), 1200/1200 VUs, 509 complete and 0 interrupted iterations
+load_test   [   9% ] 0011/1200 VUs  00.9s/10s  600 iters/s
+
+running (01.9s), 1200/1200 VUs, 1098 complete and 0 interrupted iterations
+load_test   [  19% ] 0022/1200 VUs  01.9s/10s  600 iters/s
+
+running (02.9s), 1200/1200 VUs, 1680 complete and 0 interrupted iterations
+load_test   [  29% ] 0039/1200 VUs  02.9s/10s  600 iters/s
+
+running (03.9s), 1200/1200 VUs, 2312 complete and 0 interrupted iterations
+load_test   [  39% ] 0008/1200 VUs  03.9s/10s  600 iters/s
+
+running (04.9s), 1200/1200 VUs, 2907 complete and 0 interrupted iterations
+load_test   [  49% ] 0012/1200 VUs  04.9s/10s  600 iters/s
+
+running (05.9s), 1200/1200 VUs, 3504 complete and 0 interrupted iterations
+load_test   [  59% ] 0016/1200 VUs  05.9s/10s  600 iters/s
+
+running (06.9s), 1200/1200 VUs, 4109 complete and 0 interrupted iterations
+load_test   [  69% ] 0013/1200 VUs  06.9s/10s  600 iters/s
+
+running (07.9s), 1200/1200 VUs, 4709 complete and 0 interrupted iterations
+load_test   [  79% ] 0010/1200 VUs  07.9s/10s  600 iters/s
+
+running (08.9s), 1200/1200 VUs, 5307 complete and 0 interrupted iterations
+load_test   [  89% ] 0015/1200 VUs  08.9s/10s  600 iters/s
+
+running (09.9s), 1200/1200 VUs, 5911 complete and 0 interrupted iterations
+load_test   [  99% ] 0010/1200 VUs  09.9s/10s  600 iters/s
+
+running (10.0s), 0000/1200 VUs, 6003 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 0000/1200 VUs  10s  600 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 6000건 / 10초 (600 RPS)
+-------------------------------------------------------
+  성공: 6003건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=3.81ms  avg=29.05ms  max=240.23ms
+  p(95)=82.51ms  p(99)=149.30ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=6003  실패=0  중복=0  Redis=6003
+  HTTP avg=29.05ms  p95=82.51ms  max=240.23ms
+  소비=12초  처리량=500.2/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+══ RPS=700 (7000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve01 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (700 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 3500 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 700.00 iterations/s for 10s (maxVUs: 1400-3500, gracefulStop: 30s)
+
+
+running (00.9s), 1400/1400 VUs, 474 complete and 0 interrupted iterations
+load_test   [   9% ] 0121/1400 VUs  00.9s/10s  700 iters/s
+
+running (01.8s), 1400/1400 VUs, 1004 complete and 0 interrupted iterations
+load_test   [  18% ] 0289/1400 VUs  01.8s/10s  700 iters/s
+
+running (02.8s), 1400/1400 VUs, 1945 complete and 0 interrupted iterations
+load_test   [  28% ] 0049/1400 VUs  02.8s/10s  700 iters/s
+
+running (03.8s), 1400/1400 VUs, 2679 complete and 0 interrupted iterations
+load_test   [  38% ] 0010/1400 VUs  03.8s/10s  700 iters/s
+
+running (04.8s), 1400/1400 VUs, 3377 complete and 0 interrupted iterations
+load_test   [  48% ] 0017/1400 VUs  04.8s/10s  700 iters/s
+
+running (05.8s), 1400/1400 VUs, 4084 complete and 0 interrupted iterations
+load_test   [  58% ] 0007/1400 VUs  05.8s/10s  700 iters/s
+
+running (06.8s), 1400/1400 VUs, 4780 complete and 0 interrupted iterations
+load_test   [  68% ] 0013/1400 VUs  06.8s/10s  700 iters/s
+
+running (07.8s), 1400/1400 VUs, 5483 complete and 0 interrupted iterations
+load_test   [  78% ] 0009/1400 VUs  07.8s/10s  700 iters/s
+
+running (08.8s), 1400/1400 VUs, 6185 complete and 0 interrupted iterations
+load_test   [  88% ] 0008/1400 VUs  08.8s/10s  700 iters/s
+
+running (09.8s), 1400/1400 VUs, 6885 complete and 0 interrupted iterations
+load_test   [  98% ] 0008/1400 VUs  09.8s/10s  700 iters/s
+
+running (10.0s), 0000/1400 VUs, 7001 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 0000/1400 VUs  10s  700 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 7000건 / 10초 (700 RPS)
+-------------------------------------------------------
+  성공: 7001건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=3.73ms  avg=80.70ms  max=862.31ms
+  p(95)=444.43ms  p(99)=631.13ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=7001  실패=0  중복=0  Redis=7001
+  HTTP avg=80.70ms  p95=444.43ms  max=862.31ms
+  소비=12초  처리량=583.4/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+══ RPS=800 (8000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve02 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (800 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 4000 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 800.00 iterations/s for 10s (maxVUs: 1600-4000, gracefulStop: 30s)
+
+
+running (00.8s), 1600/1600 VUs, 488 complete and 0 interrupted iterations
+load_test   [   8% ] 0131/1600 VUs  00.8s/10s  800 iters/s
+
+running (01.8s), 1600/1600 VUs, 1287 complete and 0 interrupted iterations
+load_test   [  18% ] 0132/1600 VUs  01.8s/10s  800 iters/s
+
+running (02.8s), 1600/1600 VUs, 2139 complete and 0 interrupted iterations
+load_test   [  28% ] 0080/1600 VUs  02.8s/10s  800 iters/s
+
+running (03.8s), 1600/1600 VUs, 2815 complete and 0 interrupted iterations
+load_test   [  38% ] 0205/1600 VUs  03.8s/10s  800 iters/s
+
+running (04.8s), 1600/1600 VUs, 3776 complete and 0 interrupted iterations
+load_test   [  48% ] 0045/1600 VUs  04.8s/10s  800 iters/s
+
+running (05.8s), 1600/1600 VUs, 4565 complete and 0 interrupted iterations
+load_test   [  58% ] 0052/1600 VUs  05.8s/10s  800 iters/s
+
+running (06.8s), 1600/1600 VUs, 5406 complete and 0 interrupted iterations
+load_test   [  68% ] 0013/1600 VUs  06.8s/10s  800 iters/s
+
+running (07.8s), 1600/1600 VUs, 6205 complete and 0 interrupted iterations
+load_test   [  78% ] 0014/1600 VUs  07.8s/10s  800 iters/s
+
+running (08.8s), 1600/1600 VUs, 6961 complete and 0 interrupted iterations
+load_test   [  88% ] 0075/1600 VUs  08.8s/10s  800 iters/s
+
+running (09.8s), 1600/1600 VUs, 7805 complete and 0 interrupted iterations
+load_test   [  98% ] 0013/1600 VUs  09.8s/10s  800 iters/s
+
+running (10.0s), 0000/1600 VUs, 7995 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 0000/1600 VUs  10s  800 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 8000건 / 10초 (800 RPS)
+-------------------------------------------------------
+  성공: 7995건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=3.69ms  avg=87.74ms  max=799.53ms
+  p(95)=339.80ms  p(99)=492.06ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=7995  실패=0  중복=0  Redis=7995
+  HTTP avg=87.74ms  p95=339.80ms  max=799.53ms
+  소비=11초  처리량=726.8/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+══ RPS=900 (9000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve02 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (900 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 4500 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 900.00 iterations/s for 10s (maxVUs: 1800-4500, gracefulStop: 30s)
+
+
+running (00.8s), 1800/1800 VUs, 559 complete and 0 interrupted iterations
+load_test   [   8% ] 0168/1800 VUs  00.8s/10s  900 iters/s
+
+running (01.8s), 1800/1800 VUs, 1257 complete and 0 interrupted iterations
+load_test   [  18% ] 0373/1800 VUs  01.8s/10s  900 iters/s
+
+running (02.8s), 1800/1800 VUs, 2215 complete and 0 interrupted iterations
+load_test   [  28% ] 0315/1800 VUs  02.8s/10s  900 iters/s
+
+running (03.8s), 1800/1800 VUs, 3397 complete and 0 interrupted iterations
+load_test   [  38% ] 0028/1800 VUs  03.8s/10s  900 iters/s
+
+running (04.8s), 1800/1800 VUs, 4250 complete and 0 interrupted iterations
+load_test   [  48% ] 0074/1800 VUs  04.8s/10s  900 iters/s
+
+running (05.8s), 1800/1800 VUs, 5168 complete and 0 interrupted iterations
+load_test   [  58% ] 0058/1800 VUs  05.8s/10s  900 iters/s
+
+running (06.8s), 1800/1800 VUs, 6108 complete and 0 interrupted iterations
+load_test   [  68% ] 0021/1800 VUs  06.8s/10s  900 iters/s
+
+running (07.8s), 1800/1800 VUs, 7013 complete and 0 interrupted iterations
+load_test   [  78% ] 0015/1800 VUs  07.8s/10s  900 iters/s
+
+running (08.8s), 1800/1800 VUs, 7915 complete and 0 interrupted iterations
+load_test   [  88% ] 0014/1800 VUs  08.8s/10s  900 iters/s
+
+running (09.8s), 1800/1800 VUs, 8814 complete and 0 interrupted iterations
+load_test   [  98% ] 0012/1800 VUs  09.8s/10s  900 iters/s
+
+running (10.0s), 0000/1800 VUs, 9002 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 0000/1800 VUs  10s  900 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 9000건 / 10초 (900 RPS)
+-------------------------------------------------------
+  성공: 9002건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=3.21ms  avg=125.85ms  max=1073.31ms
+  p(95)=538.95ms  p(99)=727.16ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=9002  실패=0  중복=0  Redis=9002
+  HTTP avg=125.85ms  p95=538.95ms  max=1073.31ms
+  소비=11초  처리량=818.4/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+══ RPS=1000 (10000건/10초) ═══════════════════
+  [1/6] docker-compose up...
+ Container reserve01 Healthy 
+ Container integrated-nginx Starting 
+ Container integrated-nginx Started 
+  [2/6] 헬스체크 대기...
+  서비스 기동 대기 중...
+  모든 서비스 ready (약 0초)
+  [3/6] 웜업 (100 RPS × 10초)...
+  [4/6] 5초 대기 + FLUSHALL...
+  [5/6] 본 테스트 (1000 RPS × 10초)...
+
+          /\      |‾‾| /‾‾/   /‾‾/   
+     /\  /  \     |  |/  /   /  /    
+    /  \/    \    |     (   /   ‾‾\  
+   /          \   |  |\  \ |  (‾)  | 
+  / __________ \  |__| \__\ \_____/ .io
+
+  execution: local
+     script: queue-load-test.js
+     output: -
+
+  scenarios: (100.00%) 1 scenario, 5000 max VUs, 40s max duration (incl. graceful stop):
+           * load_test: 1000.00 iterations/s for 10s (maxVUs: 2000-5000, gracefulStop: 30s)
+
+
+running (00.8s), 2000/2000 VUs, 431 complete and 0 interrupted iterations
+load_test   [   8% ] 0353/2000 VUs  00.8s/10s  1000 iters/s
+
+running (01.8s), 2000/2000 VUs, 1184 complete and 0 interrupted iterations
+load_test   [  18% ] 0586/2000 VUs  01.8s/10s  1000 iters/s
+
+running (02.8s), 2000/2000 VUs, 2306 complete and 0 interrupted iterations
+load_test   [  28% ] 0464/2000 VUs  02.8s/10s  1000 iters/s
+
+running (03.8s), 2000/2000 VUs, 3298 complete and 0 interrupted iterations
+load_test   [  38% ] 0474/2000 VUs  03.8s/10s  1000 iters/s
+
+running (04.8s), 2000/2000 VUs, 4690 complete and 0 interrupted iterations
+load_test   [  48% ] 0083/2000 VUs  04.8s/10s  1000 iters/s
+
+running (05.8s), 2000/2000 VUs, 5728 complete and 0 interrupted iterations
+load_test   [  58% ] 0048/2000 VUs  05.8s/10s  1000 iters/s
+
+running (06.8s), 2000/2000 VUs, 6730 complete and 0 interrupted iterations
+load_test   [  68% ] 0043/2000 VUs  06.8s/10s  1000 iters/s
+
+running (07.8s), 2000/2000 VUs, 7745 complete and 0 interrupted iterations
+load_test   [  78% ] 0027/2000 VUs  07.8s/10s  1000 iters/s
+
+running (08.8s), 2000/2000 VUs, 8749 complete and 0 interrupted iterations
+load_test   [  88% ] 0024/2000 VUs  08.8s/10s  1000 iters/s
+
+running (09.8s), 2000/2000 VUs, 9752 complete and 0 interrupted iterations
+load_test   [  98% ] 0020/2000 VUs  09.8s/10s  1000 iters/s
+
+running (10.0s), 0000/2000 VUs, 9999 complete and 0 interrupted iterations
+load_test ✓ [ 100% ] 0000/2000 VUs  10s  1000 iters/s
+
+-------------------------------------------------------
+  HTTP 응답 측정 — 10000건 / 10초 (1000 RPS)
+-------------------------------------------------------
+  성공: 9999건 (100.0%)  중복: 0건  실패: 0건
+  응답 시간  min=4.67ms  avg=214.27ms  max=1668.72ms
+  p(95)=818.98ms  p(99)=1151.65ms
+-------------------------------------------------------
+
+  ── 결과 ──
+  성공=9999  실패=0  중복=0  Redis=9999
+  HTTP avg=214.27ms  p95=818.98ms  max=1668.72ms
+  소비=11초  처리량=909.0/s
+  [6/6] compose down...
+ Network distributed-queue-back_integrated-net Removed 
+
+════════════════════════════════════════════════════════════════════════════════
+  Kafka 제거 후 대기열 벤치마크 최종 결과
+════════════════════════════════════════════════════════════════════════════════
+  RPS    | 성공률 | avg(ms)    | p95(ms)    | 소비(초) | E2E p95    | E2E max    | 처리량 
+────────────────────────────────────────────────────────────────────────────────
+  100    | 100.0%   | 5.44       | 6.83       | 11s        | 6.83ms     | 12.48ms    | 91.0/s    
+  200    | 100.0%   | 5.51       | 7.99       | 11s        | 7.99ms     | 56.80ms    | 181.9/s   
+  300    | 100.0%   | 6.16       | 12.28      | 11s        | 12.28ms    | 53.35ms    | 272.8/s   
+  400    | 100.0%   | 7.98       | 18.80      | 11s        | 18.80ms    | 86.41ms    | 363.7/s   
+  500    | 100.0%   | 16.56      | 53.92      | 11s        | 53.92ms    | 188.84ms   | 454.7/s   
+  600    | 100.0%   | 29.05      | 82.51      | 12s        | 82.51ms    | 240.23ms   | 500.2/s   
+  700    | 100.0%   | 80.70      | 444.43     | 12s        | 444.43ms   | 862.31ms   | 583.4/s   
+  800    | 100.0%   | 87.74      | 339.80     | 11s        | 339.80ms   | 799.53ms   | 726.8/s   
+  900    | 100.0%   | 125.85     | 538.95     | 11s        | 538.95ms   | 1073.31ms  | 818.4/s   
+  1000   | 100.0%   | 214.27     | 818.98     | 11s        | 818.98ms   | 1668.72ms  | 909.0/s   
+────────────────────────────────────────────────────────────────────────────────
+
+  * Kafka 제거 후 동기 처리: HTTP 응답 시간 = E2E (비동기 갭 없음)
+
+════════════════════════════════════════════════════════════════════════════════
+
+BENCHMARK_COMPLETE

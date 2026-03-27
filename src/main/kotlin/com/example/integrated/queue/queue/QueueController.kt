@@ -37,7 +37,7 @@ class QueueController (
                 ?.toDoubleOrNull()
                 ?: (System.currentTimeMillis() / 1000.0)
 
-        log.info { "대기열 등록 요청: server=$serverName, userId=$userId, queueType=$queueType, timestamp=$requestTimestamp" }
+        log.info { "대기열 등록 요청 : server=$serverName, userId=$userId, queueType=$queueType, timestamp=$requestTimestamp" }
         return queueService.registerUserToWaitQueue(queueType, userId, requestTimestamp)
     }
 

@@ -1,7 +1,9 @@
 package com.example.integrated.queue.queue
 
-import com.example.integrated.queue.kafka.service.KafkaProducerService
 import com.example.integrated.queue.queue.dto.RegisterResult
+import com.example.integrated.queue.queue.scheduler.QueueScheduler
+import com.example.integrated.queue.queue.scheduler.QueueSchedulerService
+import com.example.integrated.redis.pubsub.RedisPublisher
 import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
 import com.example.integrated.util.*
@@ -29,7 +31,9 @@ class QueueService(
         @Value("\${queue.validation.key}")
         private val validationKey: String,
 
-        private val kafkaProducerService: KafkaProducerService,
+        private val queueSchedulerService: QueueSchedulerService,
+        private val queueScheduler: QueueScheduler,
+        private val redisPublisher: RedisPublisher,
         private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
 ) : Loggable {
 
@@ -39,21 +43,22 @@ class QueueService(
             userId: String,
             requestTimestamp: Double
     ): RegisterResult {
-        // 간단한 중복 체크 ( 최종 보장은 Consumer Lua에서 처리 )
-        if (isAlreadyRegistered(queueType, userId)) {
-            return RegisterResult.ALREADY_REGISTERED
+        val result = queueSchedulerService.enqueueOrAllow(queueType, userId, requestTimestamp)
+
+        return when (result) {
+            -1L -> RegisterResult.ALREADY_IN_WAIT
+            -2L -> RegisterResult.ALREADY_IN_ALLOW
+            1L -> {
+                queueScheduler.addActiveQueue(queueType)
+                redisPublisher.publish(CHANNEL_NAME, queueType)
+                RegisterResult.DIRECT_ALLOW
+            }
+            else -> {
+                queueScheduler.addActiveQueue(queueType)
+                redisPublisher.publish(CHANNEL_NAME, queueType)
+                RegisterResult.QUEUED
+            }
         }
-
-        kafkaProducerService.sendMessage(queueType, userId, requestTimestamp)
-        return RegisterResult.SUCCESS
-    }
-
-    // 대기열 또는 참가열에 이미 존재하는지 확인
-    // 경쟁 상태가 발생할 수 있지만, 최종 중복 방지는 Consumer Lua에서 원자적으로 처리하고자 합니다.
-    private suspend fun isAlreadyRegistered(queueType: String, userId: String): Boolean {
-        val inWait = getWaitQueueRank(queueType, userId) > 0
-        val inAllow = getAllowQueueRank(queueType, userId) > 0
-        return inWait || inAllow
     }
 
     // 대기열에서 사용자 순위 조회 ( 존재하지 않으면 -1L )

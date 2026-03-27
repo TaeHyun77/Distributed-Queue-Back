@@ -1,15 +1,12 @@
 // 대기열 부하 테스트 — 고정 RPS로 등록 요청을 전송
 //
-// 측정 범위 (HTTP 응답 시간에 포함되는 구간):
-//   [1] isAlreadyRegistered — Redis ZSCORE × 2 (wait/allow 큐 존재 확인)
-//   [2] Kafka produce + acks=all await
-//
-// Kafka Consumer 측 (HTTP 응답에 포함되지 않음, E2E로 측정):
-//   [3] enqueue-or-allow.lua — 중복 체크 + score 생성 + 대기열/참가열 삽입 (원자적)
+// 측정 범위 (HTTP 응답 시간 = E2E):
+//   [1] enqueue-or-allow.lua — 중복 체크 + score 생성 + 대기열/참가열 삽입 (원자적)
+//   [2] addActiveQueue + Redis Pub/Sub 알림
 //
 // [ 실행 ]
-//   K6_RATE=300 k6 run k6_load_test.js
-//   K6_RATE=50 K6_DURATION=1 k6 run k6_load_test.js   (웜업용)
+//   K6_RATE=300 k6 run queue-load-test.js
+//   K6_RATE=50 K6_DURATION=1 k6 run queue-load-test.js   (웜업용)
 //
 // [ 환경 변수 ]
 //   K6_RATE     : 초당 요청 수 (기본값 300)
@@ -59,9 +56,9 @@ export default function () {
     var res = http.post('http://localhost:8079/queue/register', payload, params);
     var body = (res.body || '').replace(/"/g, '').trim();
 
-    if (res.status === 200 && body === 'SUCCESS') {
+    if (res.status === 200 && (body === 'QUEUED' || body === 'DIRECT_ALLOW')) {
         successCount.add(1);
-    } else if (res.status === 200 && body === 'ALREADY_REGISTERED') {
+    } else if (res.status === 200 && (body === 'ALREADY_IN_WAIT' || body === 'ALREADY_IN_ALLOW')) {
         duplicateCount.add(1);
     } else {
         failCount.add(1);
