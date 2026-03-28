@@ -11,7 +11,7 @@ https://velog.io/@ayeah77/series/%EB%8C%80%EA%B8%B0%EC%97%B4-%EC%8B%9C%EC%8A%A4%
 
 ---
 
-Backend : SpringBoot, Kotlin, Coroutine
+Backend : SpringBoot, Spring WebFlux, Kotlin, Coroutine
 
 Frontend : React.js, JavaScript
 
