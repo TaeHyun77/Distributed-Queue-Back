@@ -46,17 +46,10 @@ class QueueService(
         val result = queueSchedulerService.enqueueOrAllow(queueType, userId, requestTimestamp)
 
         return when (result) {
-            -1L -> RegisterResult.ALREADY_IN_WAIT
-            -2L -> RegisterResult.ALREADY_IN_ALLOW
-            1L -> {
-                queueScheduler.addActiveQueue(queueType)
-                redisPublisher.publish(CHANNEL_NAME, queueType)
-                RegisterResult.DIRECT_ALLOW
-            }
+            -1L, -2L -> RegisterResult.ALREADY_EXISTS
             else -> {
                 queueScheduler.addActiveQueue(queueType)
-                redisPublisher.publish(CHANNEL_NAME, queueType)
-                RegisterResult.QUEUED
+                RegisterResult.REGISTERED
             }
         }
     }
@@ -81,7 +74,11 @@ class QueueService(
         val waitDeferred = async { removeFromWaitQueue(queueType, userId) }
         val allowDeferred = async { removeFromAllowQueue(queueType, userId) }
 
-        waitDeferred.await() || allowDeferred.await()
+        val removed = waitDeferred.await() || allowDeferred.await()
+        if (removed) {
+            redisPublisher.publish(CHANNEL_NAME, queueType)
+        }
+        removed
     }
 
     // 대기열에서 사용자 삭제

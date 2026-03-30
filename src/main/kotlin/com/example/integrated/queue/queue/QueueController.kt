@@ -28,7 +28,6 @@ class QueueController (
         @RequestBody request: QueueRequest,
         header: ServerHttpRequest
     ): RegisterResult {
-
         val queueType = request.queueType
         val userId = request.userId
 
