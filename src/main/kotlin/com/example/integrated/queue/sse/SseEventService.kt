@@ -58,33 +58,25 @@ class SseEventService(
     ): ServerSentEvent<String> {
         return try {
 
-            // 참가열에 존재하는지 확인
-            val isInAllowQueue = !queueService.isAllowTokenExpired(queueType, userId)
+            // 1. 대기열 순위 확인 ( 대부분의 사용자는 대기열에 존재하기 때문 )
+            val rank = queueService.getWaitQueueRank(queueType, userId)
 
-            if (isInAllowQueue) {
+            if (rank > 0) {
                 ServerSentEvent.builder(
-                    objectMapper.writeValueAsString(ConfirmSseEvent(userId = userId))
-                ).event("confirmed").build()
+                    objectMapper.writeValueAsString(UpdateSseEvent(rank = rank))
+                ).event("update").build()
             } else {
-                val rank = queueService.getWaitQueueRank(queueType, userId)
+                // 2. 대기열에 없으면 참가열 확인 ( Lua 원자성으로 대기열에서 빠진 사용자는 반드시 참가열에 존재 )
+                val isInAllowQueue = !queueService.isAllowTokenExpired(queueType, userId)
 
-                if (rank > 0) {
+                if (isInAllowQueue) {
                     ServerSentEvent.builder(
-                        objectMapper.writeValueAsString(UpdateSseEvent(rank = rank))
-                    ).event("update").build()
+                        objectMapper.writeValueAsString(ConfirmSseEvent(userId = userId))
+                    ).event("confirmed").build()
                 } else {
-                    // 승격 중간 상태일 수 있으므로 한 번 더 참가열 확인
-                    val confirmedAfterRetry = !queueService.isAllowTokenExpired(queueType, userId)
-
-                    if (confirmedAfterRetry) {
-                        ServerSentEvent.builder(
-                            objectMapper.writeValueAsString(ConfirmSseEvent(userId = userId))
-                        ).event("confirmed").build()
-                    } else {
-                        ServerSentEvent.builder(
-                            objectMapper.writeValueAsString(ErrorSseEvent(message = "대기열 조회 오류 발생"))
-                        ).event("error").build()
-                    }
+                    ServerSentEvent.builder(
+                        objectMapper.writeValueAsString(ErrorSseEvent(message = "대기열 조회 오류 발생"))
+                    ).event("error").build()
                 }
             }
         } catch (e: Exception) {

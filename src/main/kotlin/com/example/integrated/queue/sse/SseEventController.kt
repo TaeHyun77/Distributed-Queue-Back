@@ -20,7 +20,6 @@ class SseEventController(
         @RequestParam queueType: String,
         @RequestParam userId: String,
     ): Flow<ServerSentEvent<String>> {
-
         return sseEventService.streamQueueEvents(queueType, userId)
     }
 }

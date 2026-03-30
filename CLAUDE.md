@@ -53,9 +53,9 @@ Redis 키 구조:
 
 ## Gotchas
 
-- CancellationException 재발생 필수 — 코루틴 `catch (e: Exception)` 블록에서 `CancellationException`은 반드시 `throw e`로 재발생시킨다. 삼키면 코루틴 취소가 전파되지 않아 리소스 누수 발생. `KafkaProducerService`, `RedisLockUtil` 참고.
-- Lua 스크립트 반환 값 연결 — `scripts/enqueue-or-allow.lua`의 반환 값(-1, -2, 0, 1)이 `KafkaConsumerService.handleMessage()`의 `when` 분기와 직접 연결된다. 양쪽을 반드시 함께 수정한다.
-- SSE 승격 중간 상태 — Lua 스크립트 승격과 SSE 이벤트 생성 사이에 타이밍 갭이 존재한다. `SseEventService.buildSseEvent()`의 이중 확인 패턴(대기열에 없으면 참가열 재확인)을 유지한다.
+- CancellationException 재발생 필수 — 코루틴 `catch (e: Exception)` 블록에서 `CancellationException`은 반드시 `throw e`로 재발생시킨다. 삼키면 코루틴 취소가 전파되지 않아 리소스 누수 발생. `RedisLockUtil` 참고.
+- Lua 스크립트 반환 값 연결 — `scripts/enqueue-or-allow.lua`의 반환 값(-1, -2, 0, 1)이 `QueueService.registerUserToWaitQueue()`의 `when` 분기와 직접 연결된다. 양쪽을 반드시 함께 수정한다.
+- SSE 조회 순서 — `SseEventService.buildSseEvent()`는 대기열(ZRANK) → 참가열(ZSCORE) 순서로 조회한다. Lua 스크립트의 원자성으로 대기열에서 빠진 사용자는 반드시 참가열에 존재하므로 재확인이 불필요하다.
 - Redisson 분산 락 leaseTime 4초 — 활성 큐 타입이 증가하면 4초 내에 모든 승격 처리가 완료되는지 확인해야 한다.
 - 설정 값은 `application.properties` 직접 확인 — CLAUDE.md에 설정 값을 중복 기재하지 않는다. 불일치 방지를 위함.
 
