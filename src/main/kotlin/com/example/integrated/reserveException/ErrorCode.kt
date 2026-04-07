@@ -10,5 +10,7 @@ enum class ErrorCode (
 
     FAIL_TO_GENERATE_TOKEN("FAIL_TO_GENERATE_TOKEN", "토큰 생성 중 에러 발생"),
 
-    FAILED_TO_STORE_TOKEN_IN_COOKIE("FAILED_TO_STORE_TOKEN_IN_COOKIE", "쿠키에 토큰 저장 실패")
+    FAILED_TO_STORE_TOKEN_IN_COOKIE("FAILED_TO_STORE_TOKEN_IN_COOKIE", "쿠키에 토큰 저장 실패"),
+
+    REDIS_UNAVAILABLE("REDIS_UNAVAILABLE", "Redis 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.")
 }

@@ -81,6 +81,8 @@ class RedisConfig(
             .setDatabase(0)
             .setConnectTimeout(5000)
             .setReadMode(ReadMode.MASTER)
+            .setRetryAttempts(3) // 재시도 3번까지 1.5초마다
+            .setRetryInterval(1500)
             .setSubscriptionMode(SubscriptionMode.MASTER).timeout = 10000
 
         return Redisson.create(config)
@@ -92,7 +94,6 @@ class RedisConfig(
         // 위에서 등록한 lettuceConnectionFactory Bean이 주입됨
         lettuceConnectionFactory: ReactiveRedisConnectionFactory
     ): ReactiveRedisMessageListenerContainer {
-
         return ReactiveRedisMessageListenerContainer(lettuceConnectionFactory)
     }
 }
