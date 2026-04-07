@@ -200,7 +200,8 @@ services:
     ports:
       - "6479:6379"
     depends_on:
-      - redis-master
+      redis-master:
+        condition: service_healthy
     networks:
       - integrated-net
 
@@ -220,7 +221,8 @@ services:
     ports:
       - "6579:6379"
     depends_on:
-      - redis-master
+      redis-master:
+        condition: service_healthy
     networks:
       - integrated-net
 
@@ -234,13 +236,13 @@ services:
       timeout: 3s
       retries: 10
     environment:
-      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000
-      - REDIS_SENTINEL_FAILOVER_TIMEOUT=10000
-      - REDIS_SENTINEL_PARALLEL_SYNCS=1
-      - REDIS_MASTER_HOST=redis-master
-      - REDIS_MASTER_PORT_NUMBER=6379
-      - REDIS_MASTER_SET=toMaster
-      - REDIS_SENTINEL_QUORUM=2
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000 # 마스터가 죽었다고 판단하기까지 기다리는 시간
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT=60000 # failover 전체 과정의 최대 시간
+      - REDIS_SENTINEL_PARALLEL_SYNCS=2 # 동시에 슬레이브 동기화할 개수
+      - REDIS_MASTER_HOST=redis-master # 초기 마스터의 호스트 이름
+      - REDIS_MASTER_PORT_NUMBER=6379 # 초기 마스터의 포트 번호
+      - REDIS_MASTER_SET=toMaster # Sentinel에서 사용하는 마스터 이름 (식별자)
+      - REDIS_SENTINEL_QUORUM=2 # 마스터 장애를 인정하기 위한 Sentinel 최소 개수
     depends_on:
       redis-master:
         condition: service_healthy
@@ -264,8 +266,8 @@ services:
       retries: 10
     environment:
       - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000
-      - REDIS_SENTINEL_FAILOVER_TIMEOUT=10000
-      - REDIS_SENTINEL_PARALLEL_SYNCS=1
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT=60000
+      - REDIS_SENTINEL_PARALLEL_SYNCS=2
       - REDIS_MASTER_HOST=redis-master
       - REDIS_MASTER_PORT_NUMBER=6379
       - REDIS_MASTER_SET=toMaster
@@ -293,8 +295,8 @@ services:
       retries: 10
     environment:
       - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000
-      - REDIS_SENTINEL_FAILOVER_TIMEOUT=10000
-      - REDIS_SENTINEL_PARALLEL_SYNCS=1
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT=60000
+      - REDIS_SENTINEL_PARALLEL_SYNCS=2
       - REDIS_MASTER_HOST=redis-master
       - REDIS_MASTER_PORT_NUMBER=6379
       - REDIS_MASTER_SET=toMaster

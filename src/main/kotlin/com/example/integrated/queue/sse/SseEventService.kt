@@ -1,7 +1,9 @@
 package com.example.integrated.queue.sse
 
 import com.example.integrated.queue.sse.event.ConfirmSseEvent
+import com.example.integrated.queue.sse.event.RetrySseEvent
 import com.example.integrated.util.Loggable
+import com.example.integrated.util.isRedisConnectionException
 import com.example.integrated.queue.queue.QueueService
 import com.example.integrated.queue.sse.event.ErrorSseEvent
 import com.example.integrated.queue.sse.event.UpdateSseEvent
@@ -80,10 +82,17 @@ class SseEventService(
                 }
             }
         } catch (e: Exception) {
-            log.error { "SSE 이벤트 생성 중 에러: ${e.message}" }
-            ServerSentEvent.builder(
-                objectMapper.writeValueAsString(ErrorSseEvent(message = "SSE 이벤트 생성 실패"))
-            ).event("error").build()
+            if (isRedisConnectionException(e)) {
+                log.warn { "Redis 연결 실패 (failover 가능성), retry 이벤트 전송: ${e.message}" }
+                ServerSentEvent.builder(
+                    objectMapper.writeValueAsString(RetrySseEvent(message = "서버 일시 장애입니다. 잠시만 기다려주세요."))
+                ).event("retry").build()
+            } else {
+                log.error { "SSE 이벤트 생성 중 에러: ${e.message}" }
+                ServerSentEvent.builder(
+                    objectMapper.writeValueAsString(ErrorSseEvent(message = "SSE 이벤트 생성 실패"))
+                ).event("error").build()
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ import com.example.integrated.reserveException.ReserveException
 import com.example.integrated.util.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.reactive.awaitFirstOrNull
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
@@ -22,9 +23,11 @@ import org.springframework.stereotype.Service
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Duration
+import java.util.*
+import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
-import java.util.*
+import kotlin.coroutines.cancellation.CancellationException
 
 @Service
 class QueueService(
@@ -37,21 +40,62 @@ class QueueService(
         private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>
 ) : Loggable {
 
+    companion object {
+        private const val MAX_RETRY_ATTEMPTS = 3
+        private const val RETRY_DELAY_MS = 2000L
+        private const val MAX_CONCURRENT_RETRIES = 500
+
+        private val concurrentRetryCount = AtomicInteger(0)
+    }
+
     // 대기열 등록
     suspend fun registerUserToWaitQueue(
             queueType: String,
             userId: String,
             requestTimestamp: Double
-    ): RegisterResult {
+    ): RegisterResult = retryOnRedisFailure {
         val result = queueSchedulerService.enqueueOrAllow(queueType, userId, requestTimestamp)
 
-        return when (result) {
+        when (result) {
             -1L, -2L -> RegisterResult.ALREADY_EXISTS
             else -> {
                 queueScheduler.addActiveQueue(queueType)
                 RegisterResult.REGISTERED
             }
         }
+    }
+
+    private suspend fun <T> retryOnRedisFailure(block: suspend () -> T): T {
+        var lastException: Exception? = null
+
+        for (attempt in 1..MAX_RETRY_ATTEMPTS) {
+            try {
+                return block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!isRedisConnectionException(e)) throw e
+
+                lastException = e
+
+                if (attempt < MAX_RETRY_ATTEMPTS) {
+                    if (concurrentRetryCount.get() >= MAX_CONCURRENT_RETRIES) {
+                        log.warn { "동시 재시도 상한($MAX_CONCURRENT_RETRIES) 초과, 즉시 실패 처리" }
+                        throw e
+                    }
+
+                    concurrentRetryCount.incrementAndGet()
+                    try {
+                        log.info { "Redis 연결 실패, ${attempt}/${MAX_RETRY_ATTEMPTS} 재시도 대기 중 (${RETRY_DELAY_MS}ms)" }
+                        delay(RETRY_DELAY_MS)
+                    } finally {
+                        concurrentRetryCount.decrementAndGet()
+                    }
+                }
+            }
+        }
+
+        throw lastException!!
     }
 
     // 대기열에서 사용자 순위 조회 ( 존재하지 않으면 -1L )
