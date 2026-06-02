@@ -1,8 +1,11 @@
 package com.example.integrated.redis.pubsub
 
+import com.example.integrated.queue.queue.dto.QueueChangePayload
 import com.example.integrated.queue.sse.SseEventService
 import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.Loggable
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CancellationException
@@ -21,7 +24,8 @@ import org.springframework.stereotype.Service
 
 @Service
 class RedisMessageListenerService(
-    private val redisMessageListenerContainer: ReactiveRedisMessageListenerContainer
+    private val redisMessageListenerContainer: ReactiveRedisMessageListenerContainer,
+    private val objectMapper: ObjectMapper
 ): Loggable {
 
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -42,7 +46,7 @@ class RedisMessageListenerService(
         log.info { "pub/sub channel 구독 종료" }
     }
 
-    // Redis Pub/Sub 채널을 구독하여 수신된 메시지를 MutableSharedFlow에 전달
+    // Redis Pub/Sub 채널을 구독하여 수신된 JSON 메시지를 QueueChangePayload로 파싱 후 sink에 전달
     private suspend fun receiveMessages(channel: ChannelTopic) {
         val channelSerializer = createChannelAndValueSerializer()
         var attempt = 0L
@@ -53,7 +57,12 @@ class RedisMessageListenerService(
                     .receive(listOf(channel), channelSerializer, channelSerializer)
                     .asFlow()
                     .collect { message ->
-                        SseEventService.getSink(message.message).tryEmit(message.message)
+                        runCatching {
+                            val payload = objectMapper.readValue<QueueChangePayload>(message.message)
+                            SseEventService.getSink(payload.queueType).tryEmit(payload)
+                        }.onFailure {
+                            log.warn { "Pub/Sub 메시지 파싱 실패: ${it.message}, raw=${message.message}" }
+                        }
                     }
                 break
             } catch (e: CancellationException) {

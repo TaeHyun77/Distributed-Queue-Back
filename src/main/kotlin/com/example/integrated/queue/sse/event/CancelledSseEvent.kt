@@ -1,5 +1,5 @@
 package com.example.integrated.queue.sse.event
 
-data class ConfirmSseEvent(
+data class CancelledSseEvent(
     val userId: String
 )

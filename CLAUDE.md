@@ -1,75 +1,63 @@
-# Integrated Queueing System
+## 기본 원칙
 
-Kotlin + Spring Boot WebFlux 기반 분산 대기열/참가열 관리 시스템. Redis Sorted Set으로 큐를 관리하고, SSE로 실시간 순위를 전달한다.
+- 내 의견을 맹목적으로 긍정하거나 동의하지 마라. 반대 의견이나 잠재적 문제점이 있다면 가감 없이 제시해라.
+- 여러 구현 방법이 존재할 때, 기존 방식에 매몰되지 마라. 새로운 방식을 제안할 때는 기존 대비 트레이드오프를 반드시 함께 제시해라.
+- 여러 항목을 제안할 때는 트레이드오프를 기반으로 순위를 매기고, 가장 추천하는 방식을 그 이유와 함께 답변 맨 상단에 배치하여 내가 최종 판단을 내릴 수 있도록 해라.
+- 더 단순한 방법이 있다면 제안하되, 단순함이 항상 정답은 아니므로 필요하다면 그 한계에 대해 가감 없이 반박해라.
+- 답변을 도출할 때 본인이 세운 가정을 명확히 밝히고, 확실하지 않은 부분이 있다면 임의로 넘겨짚지 말고 반드시 내게 질문해라.
+- 코드를 포함한 최종 답변을 제출하기 전에 스스로 검토해라. 요청 범위를 벗어나진 않았는지, 기존 패턴과 충돌하지 않는지, 엣지 케이스를 누락하지 않았는지 확인 후 제출해라.
 
-## 응답 언어 지침
+
+## 구현 원칙
+
+- 요청하지 않은 기능을 추가하지 마라.
+- 당장 재사용되지 않는 코드에 과도한 추상화를 하지 마라.
+- 현재 요구되지 않은 유연성이나 확장성을 미리 만들지 마라. 필요해지면 그때 리팩토링해라.
+- 시니어 엔지니어가 "이거 왜 이렇게 복잡해?"라고 할 것 같으면, 단순화해라.
+
+
+## 응답 규칙
 
 - 모든 결과값, 설명, 주석, 커밋 메시지, PR 설명 등은 반드시 한글로 작성한다.
-- 코드 내 변수명, 함수명, 클래스명 등 식별자는 영문을 유지하되, 그 외 사람이 읽는 텍스트는 한글로 작성한다.
+- 코드 내 변수명, 함수명, 클래스명 등의 식별자는 영문으로 작성한다.
 
-## 프로젝트 개요
 
-Docker Compose로 11개 서비스(앱 3개, Redis master/slave/sentinel, Nginx, Prometheus/Grafana)가 기동되는 분산 환경이다. 별도의 Reserve(예약) 프로젝트와 Docker Compose로 통합되어 티켓팅 시스템을 구성한다. 대기열 시스템이 트래픽을 제어하고, 참가열로 승격된 사용자가 예약 서비스로 이동한다.
+## 아키텍처 - 상세 규칙은 `rules/` 디렉터리를 참조한다.
 
-## 빌드 및 실행
+상세 구조: `rules/architecture.md`
 
-```bash
-# 빌드
-./gradlew build
 
-# 테스트 실행
-./gradlew test
+## 패턴
 
-# 단일 테스트 클래스 실행
-./gradlew test --tests "com.example.integrated.ExceptionTest"
+상세 규칙: `rules/pattern.md`
 
-# Docker 이미지 빌드 및 인프라 기동
-docker build -t ayeah77/integrated-queueing .
-docker-compose up
-```
 
-## 기술 스택
+## 에러 핸들링
 
-- 프레임워크: Kotlin + Spring Boot WebFlux (비동기/논블로킹)
-- 비동기: Kotlinx Coroutines + Project Reactor
-- 큐 저장소: Redis Sentinel (master-slave, Redisson 분산 락)
-- 실시간: SSE + Redis Pub/Sub
-- 로드밸런서: Nginx (라운드로빈, 앱 3개 인스턴스)
-- 모니터링: Prometheus + Grafana
+상세 규칙: `rules/errorHandler.md`
 
-## 아키텍처 핵심
 
-트래픽 흐름: 사용자 요청 → Nginx → Lua 스크립트로 원자적 대기열/참가열 삽입 → Redis Pub/Sub → SSE 알림
+## 커밋 규칙
 
-Redis 키 구조:
-- 대기열: `{queueType}:user-queue:wait` — Sorted Set, score = epoch-ms 20비트 시프트 + sequence
-- 참가열: `{queueType}:user-queue:allow` — Sorted Set, score = 만료 타임스탬프
-- 활성 큐 플래그: `active-allow-queue` — 스케줄링 활성 큐 타입 추적
-- Pub/Sub 채널: `queueing_system`
+상세 규칙: `rules/commit.md`
 
-분산 안전성:
-- Redisson 분산 락(`scheduling_key`, 4초 lease)으로 스케줄러 단일 실행 보장
-- Lua 스크립트(`enqueue-or-allow.lua`, `schedule-promote.lua`)로 Redis 연산 원자성 보장
+- 형식: `<타입> <한글 설명>`
+- 타입: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
+- 커밋 단위: 하나의 논리적 변경
+- 브랜치: `feat/기능명`, `fix/버그명`, `refactor/대상`
+- PR 대상: `main`
 
-## Gotchas
 
-- CancellationException 재발생 필수 — 코루틴 `catch (e: Exception)` 블록에서 `CancellationException`은 반드시 `throw e`로 재발생시킨다. 삼키면 코루틴 취소가 전파되지 않아 리소스 누수 발생. `RedisLockUtil` 참고.
-- Lua 스크립트 반환 값 연결 — `scripts/enqueue-or-allow.lua`의 반환 값(-1, -2, 0, 1)이 `QueueService.registerUserToWaitQueue()`의 `when` 분기와 직접 연결된다. 양쪽을 반드시 함께 수정한다.
-- SSE 조회 순서 — `SseEventService.buildSseEvent()`는 대기열(ZRANK) → 참가열(ZSCORE) 순서로 조회한다. Lua 스크립트의 원자성으로 대기열에서 빠진 사용자는 반드시 참가열에 존재하므로 재확인이 불필요하다.
-- Redisson 분산 락 leaseTime 4초 — 활성 큐 타입이 증가하면 4초 내에 모든 승격 처리가 완료되는지 확인해야 한다.
-- 설정 값은 `application.properties` 직접 확인 — CLAUDE.md에 설정 값을 중복 기재하지 않는다. 불일치 방지를 위함.
+## 문서 동기화
 
-## 코딩 컨벤션
+코드 변경 작업이 완료된 후, 아래 문서에 영향이 있는지 반드시 확인하고 사용자에게 업데이트 여부를 질문한다.
 
-- Loggable 인터페이스 — 모든 `@Service`/`@Component`/`@Controller`에 `: Loggable`을 구현한다. `log` 프로퍼티로 KotlinLogging 사용.
-- Reactor→코루틴 브릿지 — 값 보장 시 `awaitSingle()`, null 가능 시 `awaitSingleOrNull()`, 빈 Flux 시 `awaitFirstOrNull()`.
-- 병렬화 패턴 — 독립적인 suspend 호출은 `coroutineScope { list.map { async { ... } }.awaitAll() }` 패턴 사용.
-- SSE 이벤트 추가 — `SseEvent` sealed class를 상속하고, `event` 프로퍼티에 SSE 이벤트명을 지정한다.
-- 예외 처리 — `ReserveException(HttpStatus, ErrorCode)`로 발생시킨다. 새 에러 유형은 `ErrorCode` enum에 추가.
+- `CLAUDE.md` — 기술 스택, 모듈 구조, 패턴 등 개요 수준 변경
+- `rules/architecture.md` — 디렉터리 구조, 로직 흐름 변경
+- `rules/pattern.md` — DTO/엔티티/Repository 등 코딩 패턴 변경
+- `rules/errorHandler.md` — 에러 핸들링 방식 변경
+- `rules/commit.md` — 커밋 규칙 변경
 
-## Compact Instructions
+질문 형식: `"이번 변경으로 인해 [문서명]에 반영할 내용이 있습니다. 문서를 업데이트할까요?"`
 
-컨텍스트 압축 시 다음을 반드시 보존한다:
-- Gotchas 섹션 전체 (CancellationException, Lua 반환 값 규약)
-- 코딩 컨벤션의 Loggable 인터페이스 규칙과 Reactor-코루틴 브릿지 패턴
-- 응답 언어 지침 (한글)
+> 단순 버그 수정이나 기존 패턴을 따르는 변경은 질문을 생략할 수 있다.

@@ -1,10 +1,13 @@
 package com.example.integrated.queue.queue.scheduler
 
+import com.example.integrated.queue.queue.dto.QueueChangePayload
 import com.example.integrated.redis.pubsub.RedisPublisher
 import com.example.integrated.util.ALLOW_QUEUE
 import com.example.integrated.util.CHANNEL_NAME
 import com.example.integrated.util.WAIT_QUEUE
 import com.example.integrated.util.Loggable
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import kotlinx.coroutines.reactor.awaitSingle
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.core.io.ClassPathResource
@@ -19,7 +22,8 @@ class QueueSchedulerService(
         private val maxCapacity: Long,
 
         private val reactiveRedisTemplate: ReactiveRedisTemplate<String, String>,
-        private val redisPublisher: RedisPublisher
+        private val redisPublisher: RedisPublisher,
+        private val objectMapper: ObjectMapper
 ) : Loggable {
 
     companion object {
@@ -29,12 +33,16 @@ class QueueSchedulerService(
                 Long::class.java
         )
 
-        // 스케줄러용 : 만료 정리 + 빈 자리 계산 + 승격을 원자적으로 수행
-        private val SCHEDULE_PROMOTE_SCRIPT: RedisScript<Long> = RedisScript.of(
+        // 스케줄러용 : 만료 정리 + 빈 자리 계산 + 승격을 원자적으로 수행 ( JSON 문자열 반환 )
+        private val SCHEDULE_PROMOTE_SCRIPT: RedisScript<String> = RedisScript.of(
                 ClassPathResource("scripts/schedule-promote.lua"),
-                Long::class.java
+                String::class.java
         )
+
+        const val EVENT_PROMOTE = "promote"
     }
+
+    private data class PromoteResult(val count: Long, val ids: List<String>)
 
     // 스케줄러 : 만료 정리 + 빈 자리 계산 + 승격을 원자적으로 처리
     suspend fun promoteUsers(queueType: String): Long {
@@ -52,15 +60,24 @@ class QueueSchedulerService(
                 expireAt.toString()         // ARGV[3] : 참가열 score
         )
 
-        val promoted = reactiveRedisTemplate.execute(SCHEDULE_PROMOTE_SCRIPT, keys, args)
+        val raw = reactiveRedisTemplate.execute(SCHEDULE_PROMOTE_SCRIPT, keys, args)
                 .next()
                 .awaitSingle()
 
-        if (promoted > 0) {
-            redisPublisher.publish(CHANNEL_NAME, queueType)
+        val result = objectMapper.readValue<PromoteResult>(raw)
+
+        if (result.count > 0) {
+            val payload = objectMapper.writeValueAsString(
+                    QueueChangePayload(
+                            queueType = queueType,
+                            event = EVENT_PROMOTE,
+                            ids = result.ids
+                    )
+            )
+            redisPublisher.publish(CHANNEL_NAME, payload)
         }
 
-        return promoted
+        return result.count
     }
 
     /**
