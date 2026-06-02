@@ -7,7 +7,9 @@
 -- ARGV[2] : 현재 시각 밀리초 (만료 판단용)
 -- ARGV[3] : 참가열 score (expireAt)
 --
--- 반환 값: 승격된 사용자 수
+-- 반환 값: { count, ids } 구조의 JSON 문자열
+--   count : 승격된 사용자 수
+--   ids   : 승격된 사용자 ID 배열
 
 local allowKey = KEYS[1]
 local waitKey = KEYS[2]
@@ -16,22 +18,26 @@ local maxCapacity = tonumber(ARGV[1])
 local nowMs = tonumber(ARGV[2])
 local expireAt = tonumber(ARGV[3])
 
+local function emptyResult()
+    return cjson.encode({ count = 0, ids = {} })
+end
+
 -- 1. 참가열에서 만료된 사용자 정리
 redis.call('ZREMRANGEBYSCORE', allowKey, '-inf', nowMs)
 
 -- 2. 빈 자리 계산
 local currentCount = redis.call('ZCARD', allowKey)
 local vacancy = maxCapacity - currentCount
-if vacancy <= 0 then return 0 end
+if vacancy <= 0 then return emptyResult() end
 
 -- 3. 대기열에서 빈 자리만큼 꺼내서 참가열에 삽입
 local waitUsers = redis.call('ZPOPMIN', waitKey, vacancy)
-if #waitUsers == 0 then return 0 end
+if #waitUsers == 0 then return emptyResult() end
 
-local promoted = 0
+local promotedIds = {}
 for i = 1, #waitUsers, 2 do
     redis.call('ZADD', allowKey, expireAt, waitUsers[i])
-    promoted = promoted + 1
+    table.insert(promotedIds, waitUsers[i])
 end
 
-return promoted
+return cjson.encode({ count = #promotedIds, ids = promotedIds })
