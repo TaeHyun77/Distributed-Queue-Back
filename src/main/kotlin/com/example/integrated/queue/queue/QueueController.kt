@@ -3,10 +3,7 @@ package com.example.integrated.queue.queue
 import com.example.integrated.queue.queue.dto.QueueRequest
 import com.example.integrated.queue.queue.dto.RegisterResult
 import com.example.integrated.util.Loggable
-import com.example.integrated.reserveException.ErrorCode
-import com.example.integrated.reserveException.ReserveException
 import org.springframework.beans.factory.annotation.Value
-import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.reactive.ServerHttpRequest
 import org.springframework.http.server.reactive.ServerHttpResponse
@@ -15,13 +12,11 @@ import org.springframework.web.bind.annotation.*
 @RequestMapping("/queue")
 @RestController
 class QueueController (
-    private val queueService: QueueService,
-
     @Value("\${SERVER_NAME}")
-    private val serverName: String? = null
+    private val serverName: String? = null,
 
+    private val queueService: QueueService
 ): Loggable {
-
     // 대기열에 사용자 등록
     @PostMapping("/register")
     suspend fun registerUser(
@@ -40,17 +35,12 @@ class QueueController (
         return queueService.registerUserToWaitQueue(queueType, userId, requestTimestamp)
     }
 
-    // 대기열에서의 사용자 순위 반환
+    // 대기열에서의 사용자 순위 조회
     @GetMapping("/get/rank")
     suspend fun getUserRank(
         @RequestParam queueType: String,
         @RequestParam userId: String,
-        @RequestParam queueCategory: String
-    ): Long = when (queueCategory) {
-        "wait" -> queueService.getWaitQueueRank(queueType, userId)
-        "allow" -> queueService.getAllowQueueRank(queueType, userId)
-        else -> -1L
-    }
+    ): Long = queueService.getWaitQueueRank(queueType, userId)
 
     // 쿠키에 토큰 전달
     @GetMapping("/create/cookie")

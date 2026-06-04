@@ -39,6 +39,12 @@ class QueueSchedulerService(
                 String::class.java
         )
 
+        // 취소용 : wait → allow 순서로 ZREM 원자적 처리, 위치 문자열 반환
+        private val CANCEL_USER_SCRIPT: RedisScript<String> = RedisScript.of(
+                ClassPathResource("scripts/cancel-user.lua"),
+                String::class.java
+        )
+
         const val EVENT_PROMOTE = "promote"
     }
 
@@ -108,6 +114,21 @@ class QueueSchedulerService(
         )
 
         return reactiveRedisTemplate.execute(ENQUEUE_OR_ALLOW_SCRIPT, keys, args)
+                .next()
+                .awaitSingle()
+    }
+
+    // 취소 원자적 처리 : wait → allow 순서로 ZREM, 어느 쪽에서 제거됐는지 반환
+    // 반환 : 'wait' | 'allow' | 'none'
+    suspend fun cancelUser(queueType: String, userId: String): String {
+        val keys = listOf(
+                "$queueType$WAIT_QUEUE",    // KEYS[1] : 대기열 키
+                "$queueType$ALLOW_QUEUE"    // KEYS[2] : 참가열 키
+        )
+
+        val args = listOf(userId)           // ARGV[1] : userId
+
+        return reactiveRedisTemplate.execute(CANCEL_USER_SCRIPT, keys, args)
                 .next()
                 .awaitSingle()
     }

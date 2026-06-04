@@ -9,3 +9,6 @@ if (filePath.includes('enqueue-or-allow.lua')) {
 if (filePath.includes('schedule-promote.lua')) {
   console.error('경고: schedule-promote.lua 수정 시 호출부의 반환 값 처리를 반드시 함께 수정하세요.');
 }
+if (filePath.includes('cancel-user.lua')) {
+  console.error('경고: cancel-user.lua 수정 시 QueueService.cancelUser()의 반환값 분기 및 QueueSchedulerService.cancelUser()의 호출부를 반드시 함께 수정하세요.');
+}
