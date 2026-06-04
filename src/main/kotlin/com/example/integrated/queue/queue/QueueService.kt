@@ -9,10 +9,7 @@ import com.example.integrated.reserveException.ErrorCode
 import com.example.integrated.reserveException.ReserveException
 import com.example.integrated.util.*
 import com.fasterxml.jackson.databind.ObjectMapper
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.reactive.awaitFirstOrNull
-import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.ReactiveRedisTemplate
@@ -40,10 +37,6 @@ class QueueService(
         private val objectMapper: ObjectMapper
 ) : Loggable {
 
-    companion object {
-        const val EVENT_CANCEL = "cancel"
-    }
-
     // 대기열 등록
     suspend fun registerUserToWaitQueue(
             queueType: String,
@@ -61,62 +54,40 @@ class QueueService(
         }
     }
 
-    // 대기열에서 사용자 순위 조회 ( 존재하지 않으면 -1L )
-    suspend fun getWaitQueueRank(queueType: String, userId: String): Long =
-            getQueueRank("$queueType$WAIT_QUEUE", userId)
+    // 대기열에서의 사용자 순위 조회 ( 존재하지 않으면 -1L 반환 )
+    suspend fun getWaitQueueRank(
+        queueType: String,
+        userId: String
+    ): Long =
+        reactiveRedisTemplate.opsForZSet()
+            .rank("$queueType$WAIT_QUEUE", userId)
+            .awaitFirstOrNull()
+            ?.let { it + 1L }
+            ?: -1L
 
-    // 참가열에서 사용자 순위 조회
-    suspend fun getAllowQueueRank(queueType: String, userId: String): Long =
-            getQueueRank("$queueType$ALLOW_QUEUE", userId)
+    /* Lua로 wait/allow에서 원자적으로 제거 ( race 문제 해결을 위함 )
+    * wait/allow : publish 발행 → 본인 SSE에 'cancelled' 전달
+    * none : publish 생략 → 멱등 응답으로 간주
+    * */
+    suspend fun cancelUser(
+        queueType: String,
+        userId: String
+    ): Boolean {
+        val location = queueSchedulerService.cancelUser(queueType, userId)
+        val removed = location != "none"
 
-    private suspend fun getQueueRank(key: String, userId: String): Long =
-            reactiveRedisTemplate.opsForZSet()
-                    .rank(key, userId)
-                    .awaitFirstOrNull()
-                    ?.let { it + 1L }
-                    ?: -1L
-
-    // 열에서의 사용자 삭제
-    suspend fun cancelUser(queueType: String, userId: String): Boolean = coroutineScope {
-        val waitDeferred = async { removeFromWaitQueue(queueType, userId) }
-        val allowDeferred = async { removeFromAllowQueue(queueType, userId) }
-
-        val removed = waitDeferred.await() || allowDeferred.await()
+        // 삭제가 됐다면 삭제 이벤트를 publish
         if (removed) {
             val payload = objectMapper.writeValueAsString(
                     QueueChangePayload(
                             queueType = queueType,
-                            event = EVENT_CANCEL,
+                            event = "cancel",
                             ids = listOf(userId)
                     )
             )
             redisPublisher.publish(CHANNEL_NAME, payload)
         }
-        removed
-    }
-
-    // 대기열에서 사용자 삭제
-    private suspend fun removeFromWaitQueue(
-            queueType: String,
-            userId: String
-    ): Boolean {
-        val key = "$queueType$WAIT_QUEUE"
-
-        return reactiveRedisTemplate.opsForZSet()
-                .remove(key, userId)
-                .awaitSingle() > 0
-    }
-
-    // 참가열에서 사용자 삭제
-    private suspend fun removeFromAllowQueue(
-            queueType: String,
-            userId: String
-    ): Boolean {
-        val key = "$queueType$ALLOW_QUEUE"
-
-        return reactiveRedisTemplate.opsForZSet()
-                .remove(key, userId)
-                .awaitSingle() > 0
+        return removed
     }
 
     // 참가열로 이동하면 유효성 인증을 위해 토큰을 생성하여 쿠키에 저장
