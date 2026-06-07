@@ -5,7 +5,6 @@ import com.example.integrated.queue.queue.dto.RegisterResult
 import com.example.integrated.util.Loggable
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.ResponseEntity
-import org.springframework.http.server.reactive.ServerHttpRequest
 import org.springframework.http.server.reactive.ServerHttpResponse
 import org.springframework.web.bind.annotation.*
 
@@ -17,22 +16,20 @@ class QueueController (
 
     private val queueService: QueueService
 ): Loggable {
-    // 대기열에 사용자 등록
+    // 대기열에 사용자 등록, 대기열 신규 진입 시 X-Queue-Seq 헤더로 번호표 노출
     @PostMapping("/register")
     suspend fun registerUser(
         @RequestBody request: QueueRequest,
-        header: ServerHttpRequest
+        response: ServerHttpResponse
     ): RegisterResult {
         val queueType = request.queueType
         val userId = request.userId
 
-        // Nginx가 설정한 X-Request-Timestamp 사용, 없으면 현재 시각
-        val requestTimestamp = header.headers.getFirst("X-Request-Timestamp")
-                ?.toDoubleOrNull()
-                ?: (System.currentTimeMillis() / 1000.0)
+        log.info { "대기열 등록 요청 : server=$serverName, userId=$userId, queueType=$queueType" }
 
-        log.info { "대기열 등록 요청 : server=$serverName, userId=$userId, queueType=$queueType, timestamp=$requestTimestamp" }
-        return queueService.registerUserToWaitQueue(queueType, userId, requestTimestamp)
+        val (result, seq) = queueService.registerUserToWaitQueue(queueType, userId)
+        seq?.let { response.headers.add("X-Queue-Seq", it.toString()) }
+        return result
     }
 
     // 대기열에서의 사용자 순위 조회

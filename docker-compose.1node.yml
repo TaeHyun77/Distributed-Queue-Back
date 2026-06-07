@@ -1,8 +1,12 @@
 version: "2.4"
 
-services:
+# 단일 인스턴스 베이스라인 측정용 docker-compose
+#
+# 실행: docker compose -f docker-compose.1node.yml up
+#
+# base 파일과 별도 운영. reserve 서비스 제외, queueing 인스턴스 1개만 유지
 
-  # --- 대기열 프로젝트 ---
+services:
   queueing-back-1:
     build: .
     image: local/queueing:latest
@@ -25,153 +29,6 @@ services:
       redis-sentinel02:
         condition: service_healthy
       redis-sentinel03:
-        condition: service_healthy
-    networks:
-      - integrated-net
-
-  queueing-back-2:
-    image: local/queueing:latest
-    container_name: queueing02
-    cpus: 2.0
-    mem_limit: 1g
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9292/actuator/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    environment:
-      - SERVER_NAME=queueing02
-      - JAVA_OPTS=-Xms512m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=100
-    ports:
-      - "8082:8081"
-    depends_on:
-      redis-sentinel01:
-        condition: service_healthy
-      redis-sentinel02:
-        condition: service_healthy
-      redis-sentinel03:
-        condition: service_healthy
-    networks:
-      - integrated-net
-
-  queueing-back-3:
-    image: local/queueing:latest
-    container_name: queueing03
-    cpus: 2.0
-    mem_limit: 1g
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9292/actuator/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    environment:
-      - SERVER_NAME=queueing03
-      - JAVA_OPTS=-Xms512m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=100
-    ports:
-      - "8083:8081"
-    depends_on:
-      redis-sentinel01:
-        condition: service_healthy
-      redis-sentinel02:
-        condition: service_healthy
-      redis-sentinel03:
-        condition: service_healthy
-    networks:
-      - integrated-net
-
-  # --- 예약 프로젝트 ---
-  mysql:
-    image: mysql:8.0
-    container_name: reserve-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: "0136"
-      MYSQL_DATABASE: reserve_project
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    ports:
-      - "3307:3306"
-    volumes:
-      - mysql-data:/var/lib/mysql
-    networks:
-      - integrated-net
-
-  reserve-1:
-    image: ayeah77/integrated-reserve
-    container_name: reserve01
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8080 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    environment:
-      - JAVA_OPTS=-Xms256m -Xmx512m
-      - SPRING_DATASOURCE_URL=jdbc:mysql://reserve-mysql:3306/reserve_project?useSSL=false&useUnicode=true&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
-      - SPRING_DATASOURCE_USERNAME=root
-      - SPRING_DATASOURCE_PASSWORD=0136
-      - SPRING_DATA_REDIS_HOST=redis-master
-    ports:
-      - "8084:8080"
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis-sentinel01:
-        condition: service_healthy
-      redis-sentinel02:
-        condition: service_healthy
-      redis-sentinel03:
-        condition: service_healthy
-    networks:
-      - integrated-net
-
-  reserve-2:
-    image: ayeah77/integrated-reserve
-    container_name: reserve02
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8080 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    environment:
-      - JAVA_OPTS=-Xms256m -Xmx512m
-      - SPRING_DATASOURCE_URL=jdbc:mysql://reserve-mysql:3306/reserve_project?useSSL=false&useUnicode=true&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
-      - SPRING_DATASOURCE_USERNAME=root
-      - SPRING_DATASOURCE_PASSWORD=0136
-      - SPRING_DATA_REDIS_HOST=redis-master
-    ports:
-      - "8085:8080"
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis-sentinel01:
-        condition: service_healthy
-      redis-sentinel02:
-        condition: service_healthy
-      redis-sentinel03:
-        condition: service_healthy
-    networks:
-      - integrated-net
-
-  # --- Nginx ---
-  nginx:
-    image: nginx:latest
-    container_name: integrated-nginx
-    ports:
-      - "8079:90"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      queueing-back-1:
-        condition: service_healthy
-      queueing-back-2:
-        condition: service_healthy
-      queueing-back-3:
-        condition: service_healthy
-      reserve-1:
-        condition: service_healthy
-      reserve-2:
         condition: service_healthy
     networks:
       - integrated-net
@@ -248,13 +105,13 @@ services:
       timeout: 3s
       retries: 10
     environment:
-      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000 # 마스터가 죽었다고 판단하기까지 기다리는 시간
-      - REDIS_SENTINEL_FAILOVER_TIMEOUT=60000 # failover 전체 과정의 최대 시간
-      - REDIS_SENTINEL_PARALLEL_SYNCS=2 # 동시에 슬레이브 동기화할 개수
-      - REDIS_MASTER_HOST=redis-master # 초기 마스터의 호스트 이름
-      - REDIS_MASTER_PORT_NUMBER=6379 # 초기 마스터의 포트 번호
-      - REDIS_MASTER_SET=toMaster # Sentinel에서 사용하는 마스터 이름 (식별자)
-      - REDIS_SENTINEL_QUORUM=2 # 마스터 장애를 인정하기 위한 Sentinel 최소 개수
+      - REDIS_SENTINEL_DOWN_AFTER_MILLISECONDS=5000
+      - REDIS_SENTINEL_FAILOVER_TIMEOUT=60000
+      - REDIS_SENTINEL_PARALLEL_SYNCS=2
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_MASTER_PORT_NUMBER=6379
+      - REDIS_MASTER_SET=toMaster
+      - REDIS_SENTINEL_QUORUM=2
     depends_on:
       redis-master:
         condition: service_healthy
@@ -330,13 +187,11 @@ services:
     image: prom/prometheus:latest
     container_name: prometheus
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.1node.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
     depends_on:
       - queueing-back-1
-      - queueing-back-2
-      - queueing-back-3
     networks:
       - integrated-net
 
@@ -360,4 +215,3 @@ networks:
 
 volumes:
   grafana-data:
-  mysql-data:
