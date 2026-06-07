@@ -27,10 +27,10 @@ class QueueSchedulerService(
 ) : Loggable {
 
     companion object {
-        // Consumer용 : 중복 체크 + score 생성 + 참가열/대기열 삽입을 원자적으로 수행
-        private val ENQUEUE_OR_ALLOW_SCRIPT: RedisScript<Long> = RedisScript.of(
+        // Consumer용 : 중복 체크 + score 생성 + 참가열/대기열 삽입을 원자적으로 수행, {result, seq} 반환
+        private val ENQUEUE_OR_ALLOW_SCRIPT: RedisScript<List<*>> = RedisScript.of(
                 ClassPathResource("scripts/enqueue-or-allow.lua"),
-                Long::class.java
+                List::class.java
         )
 
         // 스케줄러용 : 만료 정리 + 빈 자리 계산 + 승격을 원자적으로 수행 ( JSON 문자열 반환 )
@@ -49,6 +49,8 @@ class QueueSchedulerService(
     }
 
     private data class PromoteResult(val count: Long, val ids: List<String>)
+
+    data class EnqueueResult(val code: Long, val seq: Long)
 
     // 스케줄러 : 만료 정리 + 빈 자리 계산 + 승격을 원자적으로 처리
     suspend fun promoteUsers(queueType: String): Long {
@@ -88,34 +90,36 @@ class QueueSchedulerService(
 
     /**
      * 중복 체크 + score 생성 + 대기열/참가열 삽입을 원자적으로 처리
-     * return -1 (대기열 존재), -2 (참가열 존재), 1 (참가열 삽입), 0 (대기열 삽입)
+     * code: -1 (대기열 존재), -2 (참가열 존재), 1 (참가열 삽입), 0 (대기열 삽입)
+     * seq : 대기열 신규 삽입(code=0)일 때만 > 0, 그 외 0
      */
     suspend fun enqueueOrAllow(
             queueType: String,
-            userId: String,
-            timestamp: Double
-    ): Long {
-        val timestampMs = (timestamp * 1000).toLong()
+            userId: String
+    ): EnqueueResult {
         val nowMs = System.currentTimeMillis()
         val expireAt = nowMs + Duration.ofMinutes(10).toMillis()
 
         val keys = listOf(
                 "$queueType$ALLOW_QUEUE",       // KEYS[1] : 참가열 키
                 "$queueType$WAIT_QUEUE",        // KEYS[2] : 대기열 키
-                "queue:seq:$timestampMs"        // KEYS[3] : 밀리초별 카운터 키 ( score 생성용 )
+                "queue:seq:$queueType"          // KEYS[3] : 이벤트별 시퀀스 카운터 키 ( score 생성용 )
         )
 
         val args = listOf(
                 userId,                         // ARGV[1] : userId
                 maxCapacity.toString(),         // ARGV[2] : 참가열 최대 수용 인원
                 nowMs.toString(),               // ARGV[3] : 현재 시각
-                expireAt.toString(),            // ARGV[4] : 참가열 score
-                timestampMs.toString()          // ARGV[5] : 요청 도착 시각
+                expireAt.toString()             // ARGV[4] : 참가열 score
         )
 
-        return reactiveRedisTemplate.execute(ENQUEUE_OR_ALLOW_SCRIPT, keys, args)
+        val raw = reactiveRedisTemplate.execute(ENQUEUE_OR_ALLOW_SCRIPT, keys, args)
                 .next()
                 .awaitSingle()
+
+        val code = (raw[0] as Number).toLong()
+        val seq = (raw[1] as Number).toLong()
+        return EnqueueResult(code, seq)
     }
 
     // 취소 원자적 처리 : wait → allow 순서로 ZREM, 어느 쪽에서 제거됐는지 반환

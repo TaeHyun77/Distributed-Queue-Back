@@ -1,292 +1,262 @@
 #!/bin/bash
-# 대기열 부하 테스트 벤치마크
+# 대기열 부하 테스트 — 단일 인스턴스 베이스라인 측정
 #
-# RPS를 단계적으로 올리며 대기열 시스템의 처리 한계를 측정합니다.
+# 한 RPS 단계 측정 흐름:
+#   1. 워밍업: 목표 RPS의 30%로 60초 (JVM JIT)
+#   2. 안정화: 60초 (JIT 완료 대기)
+#   3. FLUSHALL + SLOWLOG RESET (Redis 초기화)
+#   4. docker stats 백그라운드 샘플링 시작
+#   5. 본 측정: 목표 RPS × 60초
+#   6. docker stats 종료 + SLOWLOG / commandstats 덤프
+#   7. Redis 삽입 확인 (소비 시간 측정)
+#   8. 회차 휴식: 60초
 #
-# 측정 항목:
-#   1. HTTP 응답 시간 (= E2E) — enqueue-or-allow.lua (원자적 삽입) + Pub/Sub 알림
-#   2. 전체 소비 완료 시간 — 첫 요청 → 마지막 Redis 삽입 확인
+# 회차마다 결과 디렉터리: results/1node_rps{RPS}_run{N}/
+#   k6_result.txt, docker_stats.csv, slowlog.txt, commandstats.txt
 #
-# 테스트 흐름:
-#   1. 웜업 (50명 등록 → 20초 안정화 → FLUSHALL)
-#   2. RPS별 2회 반복 테스트 (FLUSHALL → 본 테스트 → 삽입 확인 → 결과 수집)
-#   3. 2회 평균 결과 비교표 출력
+# RPS × 3회 측정 후 중앙값을 results/1node_rps{RPS}_median.txt로 저장.
 #
 # 사용법:
-#   ./queue-benchmark-test.sh                     → 기본 (RPS: 100 300 500 700 1000)
-#   ./queue-benchmark-test.sh "100 200 300 400"   → 커스텀 RPS 단계
+#   ./queue-test/queue-benchmark-test.sh                     → 기본 RPS 단계
+#   ./queue-test/queue-benchmark-test.sh "100 200 300"       → 커스텀
 #
 # 사전 조건:
-#   - docker-compose up 상태
+#   docker compose -f docker-compose.1node.yml up -d
 
-set -euo pipefail
+set -eo pipefail
 
 # ---- 설정 ----
-RPS_LEVELS=(${1:-100 300 500 700 1000})
-DURATION=10
-RUNS=2
-WARMUP_RPS=50
-WARMUP_DURATION=1
-WARMUP_STABILIZE=20
+RPS_LEVELS=(${1:-50 100 200 300 500 700 1000})
+DURATION=60
+WARMUP_DURATION=60
+STABILIZE_WAIT=60
+COOLDOWN_WAIT=60
+RUNS=3
 RESET_WAIT=2
 
 REDIS="queue-redis-master"
-APPS=("queueing01" "queueing02" "queueing03")
 QUEUE="concert"
 
-echo ""
-echo "======================================================="
-echo "  대기열 부하 테스트 — 처리 한계 측정"
-echo "  RPS 단계: ${RPS_LEVELS[*]}"
-echo "  각 ${DURATION}초 × ${RUNS}회 반복"
-echo "======================================================="
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+RESULT_BASE="$PROJECT_DIR/results"
+mkdir -p "$RESULT_BASE"
 
-# ---- 1. 웜업 ----
-echo ""
-echo "[1/3] JVM 웜업 — ${WARMUP_RPS}명 등록 → ${WARMUP_STABILIZE}초 안정화 → FLUSHALL"
+COLLECT="$SCRIPT_DIR/collect-metrics.sh"
+LOAD_TEST="$SCRIPT_DIR/queue-load-test.js"
 
-k6 run -e K6_RATE=$WARMUP_RPS -e K6_DURATION=$WARMUP_DURATION queue-load-test.js > /dev/null 2>&1 || true
-rm -f k6_result.txt
-
-echo "  ${WARMUP_STABILIZE}초 안정화 대기 중... (JIT 완료)"
-sleep $WARMUP_STABILIZE
-
-docker exec $REDIS redis-cli FLUSHALL > /dev/null 2>&1
-sleep $RESET_WAIT
-echo "  웜업 완료 + FLUSHALL"
-
-# ---- E2E 통계 계산 함수 ----
-calc_e2e_stats() {
-    local e2e_data="$1"
-    echo "$e2e_data" | tr ' ' '\n' | grep -v '^$' | sort -n | awk '
-    {
-        vals[NR] = $1
-        sum += $1
-        c++
-        if (c == 1 || $1 + 0 < mn + 0) mn = $1
-        if (c == 1 || $1 + 0 > mx + 0) mx = $1
-    }
-    END {
-        if (c > 0) {
-            avg = sum / c
-            p95_idx = int(c * 0.95)
-            if (p95_idx < 1) p95_idx = 1
-            printf "%d %.2f %d %d", mn, avg, mx, vals[p95_idx]
-        } else {
-            printf "0 0 0 0"
-        }
+# ---- 헬퍼: 3개 값 중앙값 ----
+median3() {
+    awk -v a="${1:-0}" -v b="${2:-0}" -v c="${3:-0}" 'BEGIN {
+        n[0]=a; n[1]=b; n[2]=c
+        for (i=0;i<3;i++) for (j=i+1;j<3;j++) if (n[i]+0>n[j]+0) { t=n[i]; n[i]=n[j]; n[j]=t }
+        printf "%s", n[1]
     }'
 }
 
-# ---- 2. RPS별 테스트 (2회 반복) ----
 echo ""
-echo "[2/3] RPS별 테스트 시작..."
-
-RESULT_DIR="queue_benchmark_results"
-mkdir -p "$RESULT_DIR"
+echo "======================================================="
+echo "  대기열 부하 테스트 — 단일 인스턴스 베이스라인"
+echo "  RPS 단계: ${RPS_LEVELS[*]}"
+echo "  각 ${DURATION}초 × ${RUNS}회 (중앙값)"
+echo "  워밍업: 목표 RPS의 30% × ${WARMUP_DURATION}초"
+echo "======================================================="
 
 for RATE in "${RPS_LEVELS[@]}"; do
+    WARMUP_RATE=$(( RATE * 30 / 100 ))
+    [ $WARMUP_RATE -lt 1 ] && WARMUP_RATE=1
     EXPECTED=$((RATE * DURATION))
     POLL_TIMEOUT=$((60 + EXPECTED / 100))
 
     echo ""
     echo "  ══ RPS=${RATE} (${EXPECTED}건 / ${DURATION}초) × ${RUNS}회 ══"
 
-    # 회차별 결과 저장
-    declare -a R_SUCCESS R_FAIL R_DUP R_HTTP_AVG R_HTTP_P95 R_HTTP_P99 R_HTTP_MAX
-    declare -a R_CONSUME R_E2E_MIN R_E2E_AVG R_E2E_MAX R_E2E_P95
+    R_SUCCESS=(); R_FAIL=(); R_DUP=(); R_HTTP_AVG=(); R_HTTP_P95=(); R_HTTP_P99=(); R_HTTP_MAX=(); R_CONSUME=()
 
     for ((run=0; run<RUNS; run++)); do
         RUN_NUM=$((run + 1))
+        RUN_DIR="$RESULT_BASE/1node_rps${RATE}_run${RUN_NUM}"
+        mkdir -p "$RUN_DIR"
+
         echo ""
-        echo "    [${RUN_NUM}/${RUNS}회차]"
+        echo "    [${RUN_NUM}/${RUNS}회차]  → $RUN_DIR"
+
+        # 워밍업
+        echo "      [warmup]    ${WARMUP_RATE} RPS × ${WARMUP_DURATION}s"
+        GOMAXPROCS=2 K6_RATE=$WARMUP_RATE K6_DURATION=$WARMUP_DURATION K6_RESULT_FILE=/dev/null \
+            k6 run "$LOAD_TEST" > /dev/null 2>&1 || true
+
+        # 안정화
+        echo "      [stabilize] ${STABILIZE_WAIT}s"
+        sleep $STABILIZE_WAIT
 
         # Redis 초기화
-        docker exec $REDIS redis-cli FLUSHALL > /dev/null 2>&1
+        echo "      [reset]     FLUSHALL + SLOWLOG RESET"
+        docker exec $REDIS redis-cli FLUSHALL > /dev/null 2>&1 || true
+        docker exec $REDIS redis-cli SLOWLOG RESET > /dev/null 2>&1 || true
         sleep $RESET_WAIT
 
-        # 시작 시각
+        # docker stats 백그라운드 샘플링 시작
+        "$COLLECT" "$RUN_DIR" start &
+        STATS_PID=$!
+
+        # 본 측정 시작 시각
         START=$(date +%s)
 
-        # k6 실행
-        k6 run -e K6_RATE=$RATE -e K6_DURATION=$DURATION queue-load-test.js
+        # 본 측정
+        echo "      [measure]   ${RATE} RPS × ${DURATION}s"
+        GOMAXPROCS=2 K6_RATE=$RATE K6_DURATION=$DURATION K6_RESULT_FILE="$RUN_DIR/k6_result.txt" \
+            k6 run "$LOAD_TEST"
 
-        # k6 결과 파싱
-        if [ ! -f k6_result.txt ]; then
-            echo "      k6_result.txt 없음, 건너뜁니다"
-            R_SUCCESS[$run]=0; R_FAIL[$run]=0; R_DUP[$run]=0
-            R_HTTP_AVG[$run]=0; R_HTTP_P95[$run]=0; R_HTTP_P99[$run]=0; R_HTTP_MAX[$run]=0
-            R_CONSUME[$run]=0; R_E2E_MIN[$run]=0; R_E2E_AVG[$run]=0; R_E2E_MAX[$run]=0; R_E2E_P95[$run]=0
-            continue
+        # docker stats 종료
+        kill $STATS_PID 2>/dev/null || true
+        wait $STATS_PID 2>/dev/null || true
+
+        # 결과 파싱
+        SUCCESS=0; FAILV=0; DUPV=0
+        H_AVG=0; H_P95=0; H_P99=0; H_MAX=0
+        if [ -f "$RUN_DIR/k6_result.txt" ]; then
+            SUCCESS=$(grep "^success=" "$RUN_DIR/k6_result.txt" | cut -d= -f2 | tr -d '\r')
+            FAILV=$(grep "^fail=" "$RUN_DIR/k6_result.txt" | cut -d= -f2 | tr -d '\r')
+            DUPV=$(grep "^duplicate=" "$RUN_DIR/k6_result.txt" | cut -d= -f2 | tr -d '\r')
+            H_AVG=$(grep "^http_avg=" "$RUN_DIR/k6_result.txt" | cut -d= -f2 | tr -d '\r')
+            H_P95=$(grep "^http_p95=" "$RUN_DIR/k6_result.txt" | cut -d= -f2 | tr -d '\r')
+            H_P99=$(grep "^http_p99=" "$RUN_DIR/k6_result.txt" | cut -d= -f2 | tr -d '\r')
+            H_MAX=$(grep "^http_max=" "$RUN_DIR/k6_result.txt" | cut -d= -f2 | tr -d '\r')
+        else
+            echo "      k6_result.txt 없음"
         fi
 
-        SUCCESS=$(grep "^success=" k6_result.txt | cut -d= -f2 | tr -d '\r')
         R_SUCCESS[$run]=${SUCCESS:-0}
-        R_FAIL[$run]=$(grep "^fail=" k6_result.txt | cut -d= -f2 | tr -d '\r')
-        R_DUP[$run]=$(grep "^duplicate=" k6_result.txt | cut -d= -f2 | tr -d '\r')
-        R_HTTP_AVG[$run]=$(grep "^http_avg=" k6_result.txt | cut -d= -f2 | tr -d '\r')
-        R_HTTP_P95[$run]=$(grep "^http_p95=" k6_result.txt | cut -d= -f2 | tr -d '\r')
-        R_HTTP_P99[$run]=$(grep "^http_p99=" k6_result.txt | cut -d= -f2 | tr -d '\r')
-        R_HTTP_MAX[$run]=$(grep "^http_max=" k6_result.txt | cut -d= -f2 | tr -d '\r')
-
-        REGISTERED=${SUCCESS:-0}
-
-        # 성공 0건이면 스킵
-        if [ "$REGISTERED" -eq 0 ] 2>/dev/null; then
-            echo "      성공 0건, 건너뜁니다"
-            R_CONSUME[$run]=0; R_E2E_MIN[$run]=0; R_E2E_AVG[$run]=0; R_E2E_MAX[$run]=0; R_E2E_P95[$run]=0
-            rm -f k6_result.txt
-            continue
-        fi
+        R_FAIL[$run]=${FAILV:-0}
+        R_DUP[$run]=${DUPV:-0}
+        R_HTTP_AVG[$run]=${H_AVG:-0}
+        R_HTTP_P95[$run]=${H_P95:-0}
+        R_HTTP_P99[$run]=${H_P99:-0}
+        R_HTTP_MAX[$run]=${H_MAX:-0}
 
         # Redis 삽입 확인
-        echo "      Redis 삽입 확인 중..."
-        POLL_START=$(date +%s)
-        TOTAL=0
-        while true; do
-            W=$(docker exec $REDIS redis-cli ZCARD "${QUEUE}:user-queue:wait" 2>/dev/null | tr -d '\r')
-            A=$(docker exec $REDIS redis-cli ZCARD "${QUEUE}:user-queue:allow" 2>/dev/null | tr -d '\r')
-            TOTAL=$(( ${W:-0} + ${A:-0} ))
+        CONSUME=0
+        REGISTERED=${SUCCESS:-0}
+        if [ "${REGISTERED:-0}" -gt 0 ] 2>/dev/null; then
+            echo "      [verify]    Redis 삽입 확인 중..."
+            POLL_START=$(date +%s)
+            TOTAL=0
+            while true; do
+                W=$(docker exec $REDIS redis-cli ZCARD "${QUEUE}:user-queue:wait" 2>/dev/null | tr -d '\r')
+                A=$(docker exec $REDIS redis-cli ZCARD "${QUEUE}:user-queue:allow" 2>/dev/null | tr -d '\r')
+                TOTAL=$(( ${W:-0} + ${A:-0} ))
+                [ "$TOTAL" -ge "$REGISTERED" ] && break
+                NOW=$(date +%s)
+                if [ $((NOW - POLL_START)) -ge $POLL_TIMEOUT ]; then
+                    echo "      타임아웃 (${POLL_TIMEOUT}초), 현재 ${TOTAL}/${REGISTERED}건"
+                    break
+                fi
+                sleep 0.5
+            done
+            END=$(date +%s)
+            CONSUME=$((END - START))
+        fi
+        R_CONSUME[$run]=$CONSUME
 
-            [ "$TOTAL" -ge "$REGISTERED" ] && break
+        # SLOWLOG / commandstats 덤프
+        "$COLLECT" "$RUN_DIR" dump
 
-            NOW=$(date +%s)
-            if [ $((NOW - POLL_START)) -ge $POLL_TIMEOUT ]; then
-                echo "      타임아웃 (${POLL_TIMEOUT}초), 현재 ${TOTAL}/${REGISTERED}건"
-                break
-            fi
+        echo "      [완료]      성공=${SUCCESS}  p95=${H_P95}ms  소비=${CONSUME}s"
 
-            sleep 0.5
-        done
-
-        END=$(date +%s)
-        R_CONSUME[$run]=$((END - START))
-
-        echo "      소비 완료: ${TOTAL}/${REGISTERED}건 (${R_CONSUME[$run]}초)"
-
-        # E2E = HTTP (Kafka 제거 후 동기 처리이므로 HTTP 응답 시간 = E2E)
-        HTTP_MIN=$(grep "^http_min=" k6_result.txt | cut -d= -f2 | tr -d '\r')
-        R_E2E_MIN[$run]=${HTTP_MIN:-0}
-        R_E2E_AVG[$run]=${R_HTTP_AVG[$run]}
-        R_E2E_MAX[$run]=$(grep "^http_max=" k6_result.txt | cut -d= -f2 | tr -d '\r')
-        R_E2E_P95[$run]=${R_HTTP_P95[$run]}
-
-        echo "      E2E = HTTP (동기 처리): avg=${R_E2E_AVG[$run]}ms  p95=${R_E2E_P95[$run]}ms  max=${R_E2E_MAX[$run]}ms"
-
-        rm -f k6_result.txt
-
-        # 회차 간 안정화 대기
+        # 회차 휴식
         if [ $run -lt $((RUNS - 1)) ]; then
-            echo "      다음 회차 전 안정화 대기 (30초)..."
-            sleep 30
+            echo "      [cooldown]  ${COOLDOWN_WAIT}s"
+            sleep $COOLDOWN_WAIT
         fi
     done
 
-    # 2회 평균 계산
-    avg2() { awk "BEGIN { printf \"$1\", ($2 + $3) / 2 }"; }
+    # 3회 중앙값
+    MED_SUCCESS=$(median3 "${R_SUCCESS[0]}" "${R_SUCCESS[1]}" "${R_SUCCESS[2]}")
+    MED_FAIL=$(median3 "${R_FAIL[0]}" "${R_FAIL[1]}" "${R_FAIL[2]}")
+    MED_DUP=$(median3 "${R_DUP[0]}" "${R_DUP[1]}" "${R_DUP[2]}")
+    MED_HTTP_AVG=$(median3 "${R_HTTP_AVG[0]}" "${R_HTTP_AVG[1]}" "${R_HTTP_AVG[2]}")
+    MED_HTTP_P95=$(median3 "${R_HTTP_P95[0]}" "${R_HTTP_P95[1]}" "${R_HTTP_P95[2]}")
+    MED_HTTP_P99=$(median3 "${R_HTTP_P99[0]}" "${R_HTTP_P99[1]}" "${R_HTTP_P99[2]}")
+    MED_HTTP_MAX=$(median3 "${R_HTTP_MAX[0]}" "${R_HTTP_MAX[1]}" "${R_HTTP_MAX[2]}")
+    MED_CONSUME=$(median3 "${R_CONSUME[0]}" "${R_CONSUME[1]}" "${R_CONSUME[2]}")
 
-    AVG_SUCCESS=$(avg2 "%.0f" "${R_SUCCESS[0]}" "${R_SUCCESS[1]}")
-    AVG_HTTP_AVG=$(avg2 "%.2f" "${R_HTTP_AVG[0]}" "${R_HTTP_AVG[1]}")
-    AVG_HTTP_P95=$(avg2 "%.2f" "${R_HTTP_P95[0]}" "${R_HTTP_P95[1]}")
-    AVG_HTTP_P99=$(avg2 "%.2f" "${R_HTTP_P99[0]}" "${R_HTTP_P99[1]}")
-    AVG_HTTP_MAX=$(avg2 "%.2f" "${R_HTTP_MAX[0]}" "${R_HTTP_MAX[1]}")
-    AVG_CONSUME=$(avg2 "%.1f" "${R_CONSUME[0]}" "${R_CONSUME[1]}")
-    AVG_E2E_AVG=$(avg2 "%.2f" "${R_E2E_AVG[0]}" "${R_E2E_AVG[1]}")
-    AVG_E2E_P95=$(avg2 "%.0f" "${R_E2E_P95[0]}" "${R_E2E_P95[1]}")
-    AVG_E2E_MAX=$(avg2 "%.0f" "${R_E2E_MAX[0]}" "${R_E2E_MAX[1]}")
-    AVG_FAIL=$(avg2 "%.0f" "${R_FAIL[0]}" "${R_FAIL[1]}")
-    AVG_DUP=$(avg2 "%.0f" "${R_DUP[0]}" "${R_DUP[1]}")
-    THROUGHPUT=$(awk "BEGIN { if($AVG_CONSUME>0) printf \"%.1f\", $AVG_SUCCESS / $AVG_CONSUME; else print \"0\" }")
-
-    TOTAL_AVG=$(awk "BEGIN { printf \"%.0f\", $AVG_SUCCESS + $AVG_FAIL + $AVG_DUP }")
-    if [ "$TOTAL_AVG" -gt 0 ] 2>/dev/null; then
-        SR=$(awk "BEGIN { printf \"%.1f\", ($AVG_SUCCESS / $TOTAL_AVG) * 100 }")
+    TOTAL_MED=$(awk "BEGIN { printf \"%.0f\", $MED_SUCCESS + $MED_FAIL + $MED_DUP }")
+    if [ "$TOTAL_MED" -gt 0 ] 2>/dev/null; then
+        SR=$(awk "BEGIN { printf \"%.1f\", ($MED_SUCCESS / $TOTAL_MED) * 100 }")
     else
         SR="0.0"
     fi
+    THROUGHPUT=$(awk "BEGIN { if($MED_CONSUME>0) printf \"%.1f\", $MED_SUCCESS / $MED_CONSUME; else print \"0\" }")
 
-    # 결과 파일 저장 (2회 평균)
-    cat > "$RESULT_DIR/rps_${RATE}.txt" <<RESULT_EOF
+    SUMMARY_FILE="$RESULT_BASE/1node_rps${RATE}_median.txt"
+    cat > "$SUMMARY_FILE" <<RESULT_EOF
 rps=$RATE
-success=$AVG_SUCCESS
-fail=$AVG_FAIL
-duplicate=$AVG_DUP
+runs=$RUNS
+success=$MED_SUCCESS
+fail=$MED_FAIL
+duplicate=$MED_DUP
 success_rate=$SR
-http_avg=$AVG_HTTP_AVG
-http_p95=$AVG_HTTP_P95
-http_p99=$AVG_HTTP_P99
-http_max=$AVG_HTTP_MAX
-consume_sec=$AVG_CONSUME
-e2e_avg=$AVG_E2E_AVG
-e2e_p95=$AVG_E2E_P95
-e2e_max=$AVG_E2E_MAX
+http_avg=$MED_HTTP_AVG
+http_p95=$MED_HTTP_P95
+http_p99=$MED_HTTP_P99
+http_max=$MED_HTTP_MAX
+consume_sec=$MED_CONSUME
 throughput=$THROUGHPUT
 RESULT_EOF
 
     echo ""
-    echo "    [평균] 성공=${AVG_SUCCESS}  HTTP avg=${AVG_HTTP_AVG}ms  p95=${AVG_HTTP_P95}ms  소비=${AVG_CONSUME}초  E2E p95=${AVG_E2E_P95}ms"
+    echo "    [중앙값] 성공=${MED_SUCCESS}  HTTP avg=${MED_HTTP_AVG}ms  p95=${MED_HTTP_P95}ms  p99=${MED_HTTP_P99}ms  소비=${MED_CONSUME}s"
 done
 
-# ---- 3. 결과 비교표 ----
+# ---- 결과 비교표 ----
 echo ""
-echo "[3/3] 최종 결과"
-
-L="=============================================================================================="
-D="----------------------------------------------------------------------------------------------"
-
+echo "[결과] 단일 인스턴스 베이스라인 (RPS별 ${RUNS}회 중앙값)"
 echo ""
+
+L="==========================================================================================="
+D="-------------------------------------------------------------------------------------------"
+
 echo "$L"
-echo "  대기열 부하 테스트 — 처리 한계 측정 결과 (${RUNS}회 평균)"
-echo "$L"
-printf "  %-6s  %-8s  %-10s  %-10s  %-10s  %-10s  %-10s  %-10s\n" \
-       "RPS" "성공률" "avg(ms)" "p95(ms)" "소비(초)" "E2E p95" "E2E max" "처리량"
+printf "  %-6s  %-8s  %-10s  %-10s  %-10s  %-10s  %-10s\n" \
+       "RPS" "성공률" "avg(ms)" "p95(ms)" "p99(ms)" "소비(초)" "처리량"
 echo "$D"
 
 RECOMMENDED=""
-P95_THRESHOLD=1000
+P95_THRESHOLD=500
 
 for RATE in "${RPS_LEVELS[@]}"; do
-    FILE="$RESULT_DIR/rps_${RATE}.txt"
-
+    FILE="$RESULT_BASE/1node_rps${RATE}_median.txt"
     if [ ! -f "$FILE" ]; then
-        printf "  %-6s  %-8s  %-10s  %-10s  %-10s  %-10s  %-10s  %-10s\n" \
-               "$RATE" "N/A" "N/A" "N/A" "N/A" "N/A" "N/A" "N/A"
+        printf "  %-6s  %-8s  %-10s  %-10s  %-10s  %-10s  %-10s\n" \
+               "$RATE" "N/A" "N/A" "N/A" "N/A" "N/A" "N/A"
         continue
     fi
-
     SR=$(grep "^success_rate=" "$FILE" | cut -d= -f2 | tr -d '\r')
     HTTP_AVG=$(grep "^http_avg=" "$FILE" | cut -d= -f2 | tr -d '\r')
     HTTP_P95=$(grep "^http_p95=" "$FILE" | cut -d= -f2 | tr -d '\r')
+    HTTP_P99=$(grep "^http_p99=" "$FILE" | cut -d= -f2 | tr -d '\r')
     CONSUME=$(grep "^consume_sec=" "$FILE" | cut -d= -f2 | tr -d '\r')
-    E2E_P95=$(grep "^e2e_p95=" "$FILE" | cut -d= -f2 | tr -d '\r')
-    E2E_MAX=$(grep "^e2e_max=" "$FILE" | cut -d= -f2 | tr -d '\r')
     THRU=$(grep "^throughput=" "$FILE" | cut -d= -f2 | tr -d '\r')
 
-    printf "  %-6s  %-8s  %-10s  %-10s  %-10s  %-10s  %-10s  %-10s\n" \
+    printf "  %-6s  %-8s  %-10s  %-10s  %-10s  %-10s  %-10s\n" \
            "$RATE" "${SR:-0}%" "${HTTP_AVG:-N/A}" "${HTTP_P95:-N/A}" \
-           "${CONSUME:-N/A}s" "${E2E_P95:-N/A}ms" "${E2E_MAX:-N/A}ms" "${THRU:-N/A}/s"
+           "${HTTP_P99:-N/A}" "${CONSUME:-N/A}s" "${THRU:-N/A}/s"
 
-    # p95 기준 권장 RPS 산정
     if [ -n "$HTTP_P95" ]; then
         IS_UNDER=$(awk "BEGIN { print (${HTTP_P95} < ${P95_THRESHOLD}) ? 1 : 0 }")
-        if [ "$IS_UNDER" = "1" ]; then
-            RECOMMENDED=$RATE
-        fi
+        [ "$IS_UNDER" = "1" ] && RECOMMENDED=$RATE
     fi
 done
 
 echo "$D"
 echo ""
-
 if [ -n "$RECOMMENDED" ]; then
-    echo "  안정적 처리 가능 RPS: ${RECOMMENDED}"
-    echo "  (기준: HTTP p95 < ${P95_THRESHOLD}ms)"
+    echo "  안정적 처리 가능 RPS: ${RECOMMENDED}  (기준: HTTP p95 < ${P95_THRESHOLD}ms)"
 else
-    echo "  모든 RPS에서 p95 > ${P95_THRESHOLD}ms — 더 낮은 RPS 테스트 필요"
+    echo "  모든 RPS에서 p95 > ${P95_THRESHOLD}ms — 더 낮은 RPS 측정 필요"
 fi
-
 echo ""
 echo "$L"
-echo ""
-echo "  결과 파일: $(pwd)/$RESULT_DIR/"
+echo "  결과 디렉터리: $RESULT_BASE/"
 echo ""

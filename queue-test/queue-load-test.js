@@ -4,25 +4,34 @@
 //   [1] enqueue-or-allow.lua — 중복 체크 + score 생성 + 대기열/참가열 삽입 (원자적)
 //   [2] addActiveQueue + Redis Pub/Sub 알림
 //
+// 한 번의 k6 실행은 한 phase(워밍업/본/쿨다운)만 담당.
+// phase 간 FLUSHALL은 queue-benchmark-test.sh에서 처리.
+//
 // [ 실행 ]
-//   K6_RATE=300 k6 run queue-load-test.js
-//   K6_RATE=50 K6_DURATION=1 k6 run queue-load-test.js   (웜업용)
+//   K6_RATE=300 K6_DURATION=60 k6 run queue-load-test.js              (본 측정)
+//   K6_RATE=90  K6_DURATION=60 k6 run queue-load-test.js              (워밍업: 본 RPS의 30%)
 //
 // [ 환경 변수 ]
-//   K6_RATE     : 초당 요청 수 (기본값 300)
-//   K6_DURATION : 테스트 지속 시간 초 (기본값 10)
+//   K6_RATE        : 초당 요청 수 (기본값 300)
+//   K6_DURATION    : 테스트 지속 시간 초 (기본값 60)
+//   K6_RESULT_FILE : 결과 파일 경로 (기본값 'k6_result.txt')
+//   K6_TARGET_URL  : 등록 엔드포인트 URL (기본값 단일 서버 직접 접근 'http://localhost:8081/queue/register')
 
 import http from 'k6/http';
 import { check } from 'k6';
 import { Counter } from 'k6/metrics';
 
-var successCount = new Counter('success_count');
-var failCount    = new Counter('fail_count');
+var successCount = new Counter('success_count');     // 대기열 + 참가열 신규 진입 합계
+var waitCount    = new Counter('wait_count');        // 대기열 신규 진입 (X-Queue-Seq 헤더 동반)
+var allowCount   = new Counter('allow_count');       // 참가열 직접 삽입
 var duplicateCount = new Counter('duplicate_count');
+var failCount    = new Counter('fail_count');
 
 var RATE = parseInt(__ENV.K6_RATE || '300', 10);
-var DURATION = parseInt(__ENV.K6_DURATION || '10', 10);
+var DURATION = parseInt(__ENV.K6_DURATION || '60', 10);
 var TOTAL_EXPECTED = RATE * DURATION;
+var RESULT_FILE = __ENV.K6_RESULT_FILE || 'k6_result.txt';
+var TARGET_URL = __ENV.K6_TARGET_URL || 'http://localhost:8081/queue/register';
 
 export var options = {
     scenarios: {
@@ -48,17 +57,23 @@ export default function () {
     var params = {
         headers: {
             'Content-Type': 'application/json',
-            'X-Request-Timestamp': '' + (Date.now() / 1000),
         },
         timeout: '30s',
     };
 
-    var res = http.post('http://localhost:8079/queue/register', payload, params);
+    var res = http.post(TARGET_URL, payload, params);
     var body = (res.body || '').replace(/"/g, '').trim();
 
-    if (res.status === 200 && (body === 'QUEUED' || body === 'DIRECT_ALLOW')) {
+    if (res.status === 200 && body === 'REGISTERED') {
         successCount.add(1);
-    } else if (res.status === 200 && (body === 'ALREADY_IN_WAIT' || body === 'ALREADY_IN_ALLOW')) {
+        // X-Queue-Seq 헤더 유무로 대기열/참가열 구분 (헤더는 lowercase로 노출됨)
+        var seqHeader = res.headers['X-Queue-Seq'] || res.headers['x-queue-seq'];
+        if (seqHeader) {
+            waitCount.add(1);
+        } else {
+            allowCount.add(1);
+        }
+    } else if (res.status === 200 && body === 'ALREADY_EXISTS') {
         duplicateCount.add(1);
     } else {
         failCount.add(1);
@@ -72,6 +87,8 @@ export default function () {
 export function handleSummary(data) {
     var d = data.metrics.http_req_duration.values;
     var success = data.metrics.success_count ? data.metrics.success_count.values.count : 0;
+    var wait = data.metrics.wait_count ? data.metrics.wait_count.values.count : 0;
+    var allow = data.metrics.allow_count ? data.metrics.allow_count.values.count : 0;
     var fail = data.metrics.fail_count ? data.metrics.fail_count.values.count : 0;
     var dup = data.metrics.duplicate_count ? data.metrics.duplicate_count.values.count : 0;
     var total = success + fail + dup;
@@ -83,7 +100,7 @@ export function handleSummary(data) {
     var output = '\n' + dash + '\n';
     output += '  HTTP 응답 측정 — ' + TOTAL_EXPECTED + '건 / ' + DURATION + '초 (' + RATE + ' RPS)\n';
     output += dash + '\n';
-    output += '  성공: ' + success + '건 (' + successRate + '%)  ';
+    output += '  성공: ' + success + '건 (' + successRate + '%) [대기열 ' + wait + ', 참가열 ' + allow + ']  ';
     output += '중복: ' + dup + '건  실패: ' + fail + '건\n';
     output += '  응답 시간  min=' + d.min.toFixed(2) + 'ms  avg=' + d.avg.toFixed(2) + 'ms  max=' + d.max.toFixed(2) + 'ms\n';
     output += '  p(95)=' + d['p(95)'].toFixed(2) + 'ms  p(99)=' + d['p(99)'].toFixed(2) + 'ms\n';
@@ -92,6 +109,8 @@ export function handleSummary(data) {
     // benchmark_test.sh가 파싱할 결과 파일
     var result = [
         'success=' + success,
+        'wait=' + wait,
+        'allow=' + allow,
         'fail=' + fail,
         'duplicate=' + dup,
         'http_min=' + d.min.toFixed(2),
@@ -102,8 +121,7 @@ export function handleSummary(data) {
         'http_p99=' + d['p(99)'].toFixed(2),
     ].join('\n') + '\n';
 
-    return {
-        stdout: output,
-        'k6_result.txt': result,
-    };
+    var ret = { stdout: output };
+    ret[RESULT_FILE] = result;
+    return ret;
 }
